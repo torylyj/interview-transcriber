@@ -13,14 +13,86 @@ faster-whisper + pyannote.audio 本地转录脚本
 """
 
 import os
-
-# 设置 HuggingFace 镜像站，避免国内无法下载模型
-# 使用 setdefault：如用户已自行设置 HF_ENDPOINT 则不覆盖
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-
 import sys
 import json
 import argparse
+
+# HuggingFace 模型下载镜像站列表（按优先级排列）
+# 脚本会依次尝试，直到成功下载模型
+HF_MIRRORS = [
+    "https://hf-mirror.com",       # 国内镜像站（推荐，全量镜像）
+    "https://huggingface.co",      # 官方源（需 VPN/代理）
+]
+
+# 设置默认镜像站（如用户已自行设置 HF_ENDPOINT 则不覆盖）
+os.environ.setdefault("HF_ENDPOINT", HF_MIRRORS[0])
+
+
+def get_hf_endpoint():
+    """获取当前使用的 HF 端点"""
+    return os.environ.get("HF_ENDPOINT", "https://huggingface.co")
+
+
+def print_download_help(model_name: str, model_type: str):
+    """打印模型下载帮助信息（当自动下载失败时调用）"""
+    endpoint = get_hf_endpoint()
+    print(f"\n{'='*60}")
+    print(f"❌ 模型下载失败: {model_name}")
+    print(f"   当前下载源: {endpoint}")
+    print(f"{'='*60}")
+    print(f"\n请尝试以下方式手动下载模型：\n")
+
+    if model_type == "whisper":
+        # faster-whisper 模型对应关系
+        model_map = {
+            "tiny": "Systran/faster-whisper-tiny",
+            "base": "Systran/faster-whisper-base",
+            "small": "Systran/faster-whisper-small",
+            "medium": "Systran/faster-whisper-medium",
+            "large-v3": "Systran/faster-whisper-large-v3",
+        }
+        repo_id = model_map.get(model_name, f"Systran/faster-whisper-{model_name}")
+        print(f"📦 需要下载的模型: {repo_id} (约 {get_model_size(model_name)})\n")
+        print("方式 1 — 使用 hf-mirror 镜像站（推荐）:")
+        print(f"  pip install -U huggingface_hub")
+        print(f"  export HF_ENDPOINT=https://hf-mirror.com")
+        print(f"  huggingface-cli download {repo_id} --local-dir ~/.cache/huggingface/hub/{repo_id.replace('/', '--')}\n")
+        print("方式 2 — 使用 modelscope（魔搭社区）:")
+        print(f"  pip install modelscope")
+        print(f"  # 在 https://modelscope.cn 搜索 whisper 模型手动下载\n")
+        print("方式 3 — 手动下载后指定本地路径:")
+        print(f"  浏览器打开: https://hf-mirror.com/{repo_id}")
+        print(f"  下载所有文件到本地目录，然后在配置中设置 model_size 为本地路径\n")
+        print("方式 4 — 使用代理直连 HuggingFace:")
+        print(f"  export HF_ENDPOINT=https://huggingface.co")
+        print(f"  export https_proxy=http://your-proxy:port")
+        print(f"  重新运行脚本\n")
+
+    elif model_type == "pyannote":
+        print(f"📦 需要下载的模型: pyannote/speaker-diarization-3.1 (约 100MB)\n")
+        print("前提: 需要先注册 HuggingFace 账号并接受模型使用条款:")
+        print("  1. 注册: https://huggingface.co/join")
+        print("  2. 生成 Token: https://huggingface.co/settings/tokens")
+        print("  3. 接受条款: https://huggingface.co/pyannote/speaker-diarization-3.1\n")
+        print("方式 1 — 使用 hf-mirror 镜像站（推荐）:")
+        print(f"  export HF_ENDPOINT=https://hf-mirror.com")
+        print(f"  huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_HF_TOKEN\n")
+        print("方式 2 — 使用代理直连:")
+        print(f"  export HF_ENDPOINT=https://huggingface.co")
+        print(f"  export https_proxy=http://your-proxy:port\n")
+
+    print(f"{'='*60}\n")
+
+
+def get_model_size(model_size: str) -> str:
+    sizes = {
+        "tiny": "75MB",
+        "base": "145MB",
+        "small": "466MB",
+        "medium": "1.5GB",
+        "large-v3": "3GB",
+    }
+    return sizes.get(model_size, "未知")
 
 
 def format_timestamp(seconds: float) -> str:
@@ -32,35 +104,71 @@ def format_timestamp(seconds: float) -> str:
 
 
 def load_whisper_model(model_size: str):
-    """加载 faster-whisper 模型"""
+    """加载 faster-whisper 模型，支持多镜像站自动降级"""
     try:
         from faster_whisper import WhisperModel
     except ImportError:
         print("错误: faster-whisper 未安装，请执行: pip install faster-whisper")
         sys.exit(1)
 
-    hf_endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
-    print(f"加载 faster-whisper 模型: {model_size}（首次使用会自动下载）...")
-    print(f"  模型下载源: {hf_endpoint}")
-    return WhisperModel(model_size, device="auto", compute_type="auto")
+    print(f"加载 faster-whisper 模型: {model_size}（约 {get_model_size(model_size)}，首次使用会自动下载）...")
+    print(f"  当前下载源: {get_hf_endpoint()}")
+
+    try:
+        return WhisperModel(model_size, device="auto", compute_type="auto")
+    except Exception as e:
+        # 尝试切换镜像站重试
+        current = get_hf_endpoint()
+        for mirror in HF_MIRRORS:
+            if mirror == current:
+                continue
+            print(f"\n⚠️ 下载失败({current})，尝试切换镜像站: {mirror}")
+            os.environ["HF_ENDPOINT"] = mirror
+            try:
+                return WhisperModel(model_size, device="auto", compute_type="auto")
+            except Exception:
+                continue
+        # 所有镜像都失败，打印帮助信息
+        print_download_help(model_size, "whisper")
+        print(f"原始错误: {e}")
+        sys.exit(1)
 
 
 def load_diarization_pipeline(hf_token: str):
-    """加载 pyannote.audio 声纹分离模型"""
+    """加载 pyannote.audio 声纹分离模型，支持多镜像站自动降级"""
     try:
         from pyannote.audio import Pipeline
     except ImportError:
         print("错误: pyannote.audio 未安装，请执行: pip install pyannote.audio")
         sys.exit(1)
 
-    hf_endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
-    print("加载 pyannote.audio 声纹分离模型（首次使用会自动下载）...")
-    print(f"  模型下载源: {hf_endpoint}")
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1",
-        use_auth_token=hf_token,
-    )
-    return pipeline
+    print("加载 pyannote.audio 声纹分离模型（约 100MB，首次使用会自动下载）...")
+    print(f"  当前下载源: {get_hf_endpoint()}")
+
+    try:
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            use_auth_token=hf_token,
+        )
+        return pipeline
+    except Exception as e:
+        current = get_hf_endpoint()
+        for mirror in HF_MIRRORS:
+            if mirror == current:
+                continue
+            print(f"\n⚠️ 下载失败({current})，尝试切换镜像站: {mirror}")
+            os.environ["HF_ENDPOINT"] = mirror
+            try:
+                pipeline = Pipeline.from_pretrained(
+                    "pyannote/speaker-diarization-3.1",
+                    use_auth_token=hf_token,
+                )
+                return pipeline
+            except Exception:
+                continue
+        print_download_help("pyannote/speaker-diarization-3.1", "pyannote")
+        print(f"原始错误: {e}")
+        sys.exit(1)
 
 
 def transcribe_segment(whisper_model, audio_path: str) -> list:

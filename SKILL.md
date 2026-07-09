@@ -169,13 +169,54 @@ ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 720 
 2. 生成 Access Token：https://huggingface.co/settings/tokens
 3. 接受 pyannote 模型条款：https://huggingface.co/pyannote/speaker-diarization-3.1
 
-**模型下载镜像（重要）：** HuggingFace 在国内可能无法直接访问，脚本已内置 `hf-mirror.com` 镜像站。如需更换镜像或关闭镜像，设置环境变量：
+**模型下载镜像（重要）：** HuggingFace 在国内可能无法直接访问，脚本已内置多镜像站自动降级机制。下载失败时会自动尝试下一个镜像源，所有镜像均失败时打印详细手动下载指南。
+
+**支持的下载源（按优先级）：**
+
+| 下载源 | 地址 | 说明 |
+|--------|------|------|
+| hf-mirror.com | `https://hf-mirror.com` | 国内镜像站（脚本默认），全量镜像 HuggingFace |
+| HuggingFace 官方 | `https://huggingface.co` | 原始源，需 VPN/代理 |
+| ModelScope 魔搭 | `https://modelscope.cn` | 阿里达摩院模型社区，部分 whisper 模型可用 |
+
+**环境变量配置：**
 ```bash
 # 使用镜像（脚本默认行为，无需手动设置）
 export HF_ENDPOINT=https://hf-mirror.com
 
-# 关闭镜像（直连 HuggingFace）
+# 关闭镜像（直连 HuggingFace，需代理）
 unset HF_ENDPOINT
+
+# 自定义镜像源
+export HF_ENDPOINT=https://your-mirror.com
+```
+
+**手动下载（自动下载全部失败时）：**
+
+faster-whisper 模型：
+```bash
+# 方式 1: hf-mirror 镜像站（推荐）
+pip install -U huggingface_hub
+export HF_ENDPOINT=https://hf-mirror.com
+huggingface-cli download Systran/faster-whisper-medium --local-dir ./whisper-medium
+
+# 方式 2: ModelScope 魔搭社区
+pip install modelscope
+# 访问 https://modelscope.cn 搜索 whisper 模型下载
+
+# 方式 3: 浏览器手动下载
+# 打开 https://hf-mirror.com/Systran/faster-whisper-medium 下载所有文件
+```
+
+pyannote.audio 声纹分离模型：
+```bash
+# 需先注册 HuggingFace 账号并接受模型条款
+# 1. 注册: https://huggingface.co/join
+# 2. 生成 Token: https://huggingface.co/settings/tokens
+# 3. 接受条款: https://huggingface.co/pyannote/speaker-diarization-3.1
+
+export HF_ENDPOINT=https://hf-mirror.com
+huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_HF_TOKEN
 ```
 
 ### Step 3: 运行转录
@@ -218,7 +259,7 @@ python <skill_dir>/scripts/transcribe_local.py --config transcribe_config.json
 pip install faster-whisper pyannote.audio
 ```
 
-> **模型下载镜像：** 脚本已内置 HuggingFace 镜像站（`hf-mirror.com`），首次运行时模型会从镜像站下载，避免国内无法访问 HuggingFace 的问题。如需自定义，设置环境变量 `HF_ENDPOINT`。
+> **模型下载镜像：** 脚本已内置多镜像站自动降级机制（hf-mirror.com → HuggingFace 官方），首次运行时模型会自动从可用镜像站下载。下载失败时自动切换镜像源重试，全部失败后打印详细手动下载指南（含 ModelScope 魔搭、浏览器下载等方式）。如需自定义，设置环境变量 `HF_ENDPOINT`。
 
 脚本执行（逐段处理）：
 1. 加载 pyannote.audio 声纹分离模型（`pyannote/speaker-diarization-3.1`，首次使用自动下载）
@@ -526,7 +567,7 @@ Qwen3-ASR-Flash 不直接支持说话人分离，fun-asr 虽支持但需 OSS 文
 - **转录 API**：使用 `dashscope.MultiModalConversation.call(model="qwen3-asr-flash")`，不要用 `Transcription.call`（后者签名已变更）
 - **转录方式选择**：转录前必须执行 Step 2.5 询问用户选择转录方式，并明确告知本地转录质量较差。优先推荐云端 Qwen3-ASR-Flash（准确率高），本地 faster-whisper + pyannote.audio 仅作为备选（中文质量明显较差）
 - **本地声纹分离**：使用 pyannote.audio（`pyannote/speaker-diarization-3.1`），需 HuggingFace Token + 接受模型条款，采访场景固定 2 人
-- **HuggingFace 模型下载镜像**：本地转录脚本已内置 `hf-mirror.com` 镜像站（通过 `os.environ.setdefault("HF_ENDPOINT", ...)`），避免国内无法下载 faster-whisper 和 pyannote 模型。如需更换镜像或直连，设置 `HF_ENDPOINT` 环境变量即可覆盖
+- **HuggingFace 模型下载镜像**：脚本内置多镜像站自动降级机制（hf-mirror.com → HuggingFace 官方），下载失败时自动切换重试。全部失败后打印详细手动下载指南，包含 hf-mirror、ModelScope 魔搭、浏览器下载等多种方式。如需自定义镜像源，设置 `HF_ENDPOINT` 环境变量即可
 - Windows 路径使用正斜杠 / ，避免中文路径传给 API
 - **Windows 下 `bc` 不可用**：数值计算用 Python 替代，不要在 bash 中用 `bc` 做浮点比较
 - **bash heredoc 会吃掉 `\s` 转义**：正则表达式需写入 .py 文件执行，不要用 inline heredoc 传正则
