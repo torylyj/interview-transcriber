@@ -17,7 +17,7 @@ pip install dashscope
 ```json
 {
   "api_key": "sk-xxxxxxxxxxxxxxxx",
-  "title": "清华26-0607 街头采访转录文本",
+  "title": "清华26-0607 采访转录文本",
   "video_file": "VID20260607150604.mp4",
   "frame_path": "人物静帧.jpg",
   "output_dir": "./output",

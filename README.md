@@ -1,6 +1,6 @@
-# Street Interview Transcriber | 街采视频转录技能
+# Interview Transcriber | 采访视频转录技能
 
-> 将街头采访视频一键转化为带说话人识别、内容摘要和人物信息的结构化转录文档。
+> 将采访视频一键转化为带说话人识别、内容摘要和人物信息的结构化转录文档。适用于任何支持命令执行的 AI 编码代理。
 
 ## ✨ 功能概览
 
@@ -9,10 +9,24 @@
 | 视频预处理 | ffmpeg 提取人物静帧 + 转 MP3 音频 + 4 分钟切段 |
 | 云端转录 | Qwen3-ASR-Flash（推荐），中文识别准确率高 |
 | 本地转录 | faster-whisper + pyannote.audio 声纹分离（备选，无需 API） |
-| 说话人识别 | Qwen-Plus LLM 语义分析，自动区分「采访者」与「受访人」 |
+| 说话人识别 | LLM 语义分析，自动区分「采访者」与「受访人」 |
 | 内容摘要 | LLM 生成 3-5 句话概括采访核心内容 |
 | 人物信息 | LLM 提取受访人学校/专业/年级/家乡/关键经历/核心观点 |
-| 多平台分发 | 本地 Markdown / 钉钉在线文档 / 其他平台 |
+| 多平台分发 | 本地 Markdown / 钉钉文档 / 飞书 / Notion / 其他平台 |
+
+## 🤖 Agent 兼容性
+
+本技能以 Markdown 指令文件（`SKILL.md`）形式编写，不依赖任何特定平台。任何支持 bash 命令执行、文件读写、Python 脚本运行的 AI 编码代理均可使用：
+
+| Agent | 加载方式 |
+|-------|---------|
+| **WorkBuddy** | 放置在 `~/.workbuddy/skills/` 目录，对话中自动触发 |
+| **Claude Code** | 将 `SKILL.md` 内容追加到 `CLAUDE.md` 或通过自定义命令加载 |
+| **Codex (OpenAI)** | 作为 `AGENTS.md` 或通过系统提示注入 |
+| **Cursor** | 放入 `.cursorrules` 或项目上下文 |
+| **其他 Agent** | 将 `SKILL.md` 作为系统提示或上下文注入即可 |
+
+> **LLM 能力说明：** Step 3.5（说话人识别）和 Step 3.6（摘要生成）需要 LLM 能力。大多数编码代理（Claude Code、Codex、WorkBuddy 等）本身即是 LLM，可直接在对话中完成这两步，无需额外 API 调用。
 
 ## 📋 工作流程
 
@@ -41,7 +55,7 @@
                  ▼
 ┌─────────────────────────────────┐
 │ Step 3.5: LLM 说话人识别        │
-│  Qwen-Plus 语义分析/角色映射    │
+│  Agent 自身分析 或 API 调用     │
 │  → 区分「采访者」「受访人」     │
 └──────────────┬──────────────────┘
                │
@@ -57,7 +71,7 @@
 ┌─────────────────────────────────┐
 │ Step 4: 输出与分发              │
 │  ├─ 本地 Markdown 文件          │
-│  ├─ 钉钉在线文档                │
+│  ├─ 钉钉 / 飞书 / Notion 等     │
 │  └─ 其他平台                    │
 └─────────────────────────────────┘
 ```
@@ -83,8 +97,8 @@
 ---
 
 > 转录工具：Qwen3-ASR-Flash
-> 说话人识别：Qwen-Plus LLM 语义分析
-> 摘要与人物信息：Qwen-Plus LLM 生成
+> 说话人识别：LLM 语义分析
+> 摘要与人物信息：LLM 生成
 > 转录日期：2026-07-09
 
 ---
@@ -118,15 +132,17 @@ pip install dashscope
 pip install faster-whisper pyannote.audio
 ```
 
-### 使用方式
+### 在 AI Agent 中使用
 
-本技能设计为 WorkBuddy AI 助手的技能模块，在对话中自然触发：
+将 `SKILL.md` 加载到你的 Agent 上下文中（方式见上方兼容性表格），然后在对话中说：
 
-> "帮我转录这个街采视频 H:\街头采访\清华26-0703\"
+> "帮我转录这个采访视频 /path/to/video/"
 
-WorkBuddy 会自动执行完整流程：预处理 → 转录 → 说话人识别 → 生成摘要 → 输出文档。
+Agent 会自动执行完整流程：预处理 → 转录 → 说话人识别 → 生成摘要 → 输出文档。
 
 ### 手动运行脚本
+
+如果你只想使用转录脚本部分，不依赖 Agent：
 
 ```bash
 # 1. 视频预处理
@@ -137,20 +153,22 @@ ffmpeg -i "video.mp4" -vn -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "audio.mp3
 ffmpeg -i audio.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 0 -t 240 _seg1.mp3 -y
 ffmpeg -i audio.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 240 -t 240 _seg2.mp3 -y
 
-# 3. 云端转录
+# 3. 创建配置文件 transcribe_config.json（格式见 SKILL.md Step 2）
+
+# 4. 云端转录
 python scripts/transcribe_qwen.py --config transcribe_config.json
 
 # 或本地转录
 python scripts/transcribe_local.py --config transcribe_config.json
 ```
 
-转录完成后，使用 Qwen-Plus LLM 进行说话人识别和摘要生成（详见 SKILL.md 中 Step 3.5 和 Step 3.6）。
+转录完成后，使用 LLM 进行说话人识别和摘要生成（详见 `SKILL.md` 中 Step 3.5 和 Step 3.6）。
 
 ## 📁 项目结构
 
 ```
 interview-transcriber/
-├── SKILL.md                          # 技能定义文件（完整工作流程）
+├── SKILL.md                          # 技能定义文件（完整工作流程 + Agent 适配说明）
 ├── README.md                         # 本文件
 ├── scripts/
 │   ├── transcribe_qwen.py            # 云端转录脚本 (Qwen3-ASR-Flash)
@@ -176,24 +194,32 @@ interview-transcriber/
 ### 说话人识别方案
 
 ```
-云端模式: Qwen3-ASR-Flash 连续文本 → Qwen-Plus LLM 语义切分 → 采访者/受访人
-本地模式: pyannote.audio 声纹分离 → SPEAKER_00/01 → Qwen-Plus LLM 角色映射 → 采访者/受访人
+云端模式: Qwen3-ASR-Flash 连续文本 → LLM 语义切分 → 采访者/受访人
+本地模式: pyannote.audio 声纹分离 → SPEAKER_00/01 → LLM 角色映射 → 采访者/受访人
 ```
 
 > 启发式方法（关键词+段落长度）已废弃，准确率不可接受。
+
+### LLM 调用方式
+
+| 方式 | 适用场景 | 说明 |
+|------|---------|------|
+| Agent 自身执行 | Claude Code、Codex、WorkBuddy 等 | Agent 本身即是 LLM，直接在对话中分析转录文本，无需额外 API 调用 |
+| 调用外部 API | Agent 不便直接处理时 | 通过 Python 调用 `dashscope.Generation.call(model='qwen-plus')` |
 
 ## ⚠️ 注意事项
 
 - **文档命名规范**：`拍摄时间+人物简介`，如 `26-0509 车辆学院直博生`（人物简介 ≤10 字）
 - **Windows 路径**：使用正斜杠 `/`，避免中文路径传给 API
-- **长文本处理**：Qwen-Plus 单次输入建议不超过 8000 字符，超长需分段
-- **钉钉上传**：doc create 限制 10000 字符，超长文档需分段上传
+- **长文本处理**：LLM 单次输入建议不超过 8000 字符，超长需分段
+- **在线文档上传**：部分平台 API 限制内容长度，超长文档需分段上传
 - **本地转录质量**：faster-whisper medium 模型中文质量明显差于云端，仅建议备选使用
 
 ## 📝 更新日志
 
 | 日期 | 内容 |
 |------|------|
+| 2026-07-09 | 适配多种 AI Agent（Claude Code、Codex 等）；统一使用"采访"表述 |
 | 2026-07-09 | 新增 Step 3.6：LLM 生成内容摘要与人物信息，置于文档正文最前面 |
 | 2026-07-01 | 初始版本：完整工作流程（预处理→转录→说话人识别→分发） |
 
