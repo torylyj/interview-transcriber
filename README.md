@@ -8,7 +8,7 @@
 |------|------|
 | 视频预处理 | ffmpeg 提取人物静帧 + 转 MP3 音频 + 4 分钟切段 |
 | 云端转录 | Qwen3-ASR-Flash（推荐），中文识别准确率高 |
-| 本地转录 | faster-whisper + pyannote.audio 声纹分离（备选，无需 API） |
+| 本地转录 | SenseVoice / Paraformer（魔搭社区，中文优秀）+ faster-whisper（备选） |
 | 对话时间码 | 每轮对话标注 [MM:SS] 时间码，定位视频位置 |
 | 说话人识别 | LLM 语义分析，自动区分「采访者」与「受访人」 |
 | 内容摘要 | LLM 生成 3-5 句话概括采访核心内容 |
@@ -93,11 +93,12 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 ```bash
 # 获取地址：https://huggingface.co/settings/tokens
 export HF_TOKEN="hf_your-token-here"
-# 模型下载已内置多镜像站自动降级（hf-mirror.com → HuggingFace 官方）
-# 全部失败时打印手动下载指南（含 ModelScope 魔搭等），国内直接可用
+# 仅用于 pyannote.audio 声纹分离（可选）
+# SenseVoice/Paraformer 从魔搭社区下载，无需 HuggingFace
+# 无 Token 时跳过声纹分离，改用 LLM 语义切分说话人
 ```
 
-> 💡 **提示**：不确定选哪个？默认选 A（云端转录），准确率远高于本地，且费用极低。
+> 💡 **提示**：不确定选哪个？默认选 A（云端转录），准确率最高且费用极低。选 B 时默认使用 SenseVoice（中文质量接近云端，从魔搭社区下载）。
 
 ## 🤖 Agent 兼容性
 
@@ -219,7 +220,7 @@ export HF_TOKEN="hf_your-token-here"
 - **ffmpeg** — 视频处理（已预装或通过包管理器安装）
 - **Python 3.10+** — 运行转录脚本
 - **DashScope API Key** — 云端转录必需（[获取地址](https://bailian.console.aliyun.com/?tab=model#/api-key)）
-- **HuggingFace Token** — 仅本地转录需要（[获取地址](https://huggingface.co/settings/tokens)）
+- **HuggingFace Token** — 仅本地声纹分离需要（[获取地址](https://huggingface.co/settings/tokens)），SenseVoice/Paraformer 无需
 
 ### 安装依赖
 
@@ -227,10 +228,15 @@ export HF_TOKEN="hf_your-token-here"
 # 云端转录（推荐）
 pip install dashscope
 
-# 本地转录（备选）
-pip install faster-whisper pyannote.audio
+# 本地转录 — SenseVoice/Paraformer（推荐，从魔搭社区下载）
+pip install funasr
+
+# 本地转录 — faster-whisper（备选，从 HuggingFace 下载）
+pip install faster-whisper
 # 模型下载已内置多镜像站自动降级（hf-mirror.com → HuggingFace 官方）
-# 全部失败时打印详细手动下载指南（含 ModelScope 魔搭等），无需额外配置
+
+# 声纹分离（可选，无 Token 时跳过，改用 LLM 语义切分）
+pip install pyannote.audio
 ```
 
 ### 在 AI Agent 中使用
@@ -273,7 +279,7 @@ interview-transcriber/
 ├── README.md                         # 本文件
 ├── scripts/
 │   ├── transcribe_qwen.py            # 云端转录脚本 (Qwen3-ASR-Flash)
-│   └── transcribe_local.py           # 本地转录脚本 (faster-whisper + pyannote)
+│   └── transcribe_local.py           # 本地转录脚本 (SenseVoice / Paraformer / faster-whisper)
 └── references/
     └── dashscope_setup.md            # DashScope API 配置指南
 ```
@@ -282,21 +288,22 @@ interview-transcriber/
 
 ### 转录方式对比
 
-| 对比项 | 云端 (Qwen3-ASR-Flash) | 本地 (faster-whisper) |
-|--------|------------------------|----------------------|
-| 中文准确率 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
-| 标点断句 | 自然准确 | 不够准确 |
-| 专有名词 | 识别好 | 错误率高 |
-| 说话人分离 | 不支持（需 LLM 补充） | pyannote.audio 声纹分离 |
-| 网络 | 需要 | 不需要 |
-| 成本 | 免费额度内极低 | 免费（需 GPU 更佳） |
-| 推荐场景 | **日常使用** | 无网络/API 不可用 |
+| 对比项 | 云端 (Qwen3-ASR-Flash) | 本地 SenseVoice | 本地 faster-whisper |
+|--------|------------------------|-----------------|---------------------|
+| 中文准确率 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+| 模型来源 | 阿里云 API | 魔搭社区（国内直连） | HuggingFace（需镜像） |
+| 模型大小 | 无需下载 | ~500MB | ~3GB |
+| 说话人分离 | 不支持（需 LLM） | 不支持（需 LLM/pyannote） | 不支持（需 LLM/pyannote） |
+| 网络 | 需要 | 不需要 | 不需要（下载时需要） |
+| 成本 | 免费额度内极低 | 免费 | 免费 |
+| 推荐场景 | **日常使用** | 无 API/离线场景 | 通用多语言场景 |
 
 ### 说话人识别方案
 
 ```
 云端模式: Qwen3-ASR-Flash 连续文本 → LLM 语义切分 → 采访者/受访人
-本地模式: pyannote.audio 声纹分离 → SPEAKER_00/01 → LLM 角色映射 → 采访者/受访人
+本地模式(SenseVoice/Paraformer): FunASR 转录 → LLM 语义切分 或 pyannote.audio 声纹分离 → 采访者/受访人
+本地模式(faster-whisper): faster-whisper 转录 → LLM 语义切分 或 pyannote.audio 声纹分离 → 采访者/受访人
 ```
 
 > 启发式方法（关键词+段落长度）已废弃，准确率不可接受。
@@ -314,15 +321,15 @@ interview-transcriber/
 - **Windows 路径**：使用正斜杠 `/`，避免中文路径传给 API
 - **长文本处理**：LLM 单次输入建议不超过 8000 字符，超长需分段
 - **在线文档上传**：部分平台 API 限制内容长度，超长文档需分段上传
-- **本地转录质量**：faster-whisper medium 模型中文质量明显差于云端，仅建议备选使用
-- **模型下载镜像**：本地转录脚本内置多镜像站自动降级机制（hf-mirror.com → HuggingFace 官方），下载失败自动切换重试；全部失败后打印详细手动下载指南（含 ModelScope 魔搭、浏览器下载等方式），无需额外配置
+- **本地转录质量**：SenseVoice/Paraformer（阿里达摩院中文模型）质量接近云端，从魔搭社区下载；faster-whisper 中文质量一般，仅作通用备选
+- **模型下载镜像**：SenseVoice/Paraformer 从魔搭社区下载（国内直连，无需 HuggingFace）；faster-whisper 内置多镜像站自动降级（hf-mirror.com → HuggingFace 官方）；pyannote.audio 需 HuggingFace Token，无 Token 时可跳过声纹分离
 
 ## 📝 更新日志
 
 | 日期 | 内容 |
 |------|------|
 | 2026-07-09 | README 新增「使用说明」章节，包含基本用法、输出结果、常见示例和首次准备 |
-| 2026-07-09 | 本地转录脚本新增多镜像站自动降级 + 手动下载指南（hf-mirror / HuggingFace / ModelScope 魔搭） |
+| 2026-07-09 | 本地转录新增多模型支持：SenseVoice / Paraformer（阿里达摩院中文模型，魔搭社区下载）+ faster-whisper large-v3，替代原 faster-whisper medium |
 | 2026-07-09 | 新增 Step 2.5：转录前询问用户选择转录方式，明确告知本地转录质量较差 |
 | 2026-07-09 | 新增对话时间码：每轮对话标注 [MM:SS]，云端段级精度，本地精确到秒 |
 | 2026-07-09 | 适配多种 AI Agent（Claude Code、Codex 等）；统一使用"采访"表述 |
