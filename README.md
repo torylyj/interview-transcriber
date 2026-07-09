@@ -155,6 +155,7 @@ pip install dashscope
 
 # 本地转录（备选）
 pip install faster-whisper pyannote.audio
+# 模型下载已内置 hf-mirror.com 镜像站，无需额外配置
 ```
 
 ### 在 AI Agent 中使用
@@ -239,11 +240,13 @@ interview-transcriber/
 - **长文本处理**：LLM 单次输入建议不超过 8000 字符，超长需分段
 - **在线文档上传**：部分平台 API 限制内容长度，超长文档需分段上传
 - **本地转录质量**：faster-whisper medium 模型中文质量明显差于云端，仅建议备选使用
+- **模型下载镜像**：本地转录脚本已内置 `hf-mirror.com` 镜像站，无需额外配置；如需更换可通过 `HF_ENDPOINT` 环境变量自定义
 
 ## 📝 更新日志
 
 | 日期 | 内容 |
 |------|------|
+| 2026-07-09 | 本地转录脚本内置 HuggingFace 镜像站（hf-mirror.com），避免国内无法下载模型 |
 | 2026-07-09 | 新增 Step 2.5：转录前询问用户选择转录方式，明确告知本地转录质量较差 |
 | 2026-07-09 | 新增对话时间码：每轮对话标注 [MM:SS]，云端段级精度，本地精确到秒 |
 | 2026-07-09 | 适配多种 AI Agent（Claude Code、Codex 等）；统一使用"采访"表述 |

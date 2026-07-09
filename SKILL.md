@@ -169,6 +169,15 @@ ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 720 
 2. 生成 Access Token：https://huggingface.co/settings/tokens
 3. 接受 pyannote 模型条款：https://huggingface.co/pyannote/speaker-diarization-3.1
 
+**模型下载镜像（重要）：** HuggingFace 在国内可能无法直接访问，脚本已内置 `hf-mirror.com` 镜像站。如需更换镜像或关闭镜像，设置环境变量：
+```bash
+# 使用镜像（脚本默认行为，无需手动设置）
+export HF_ENDPOINT=https://hf-mirror.com
+
+# 关闭镜像（直连 HuggingFace）
+unset HF_ENDPOINT
+```
+
 ### Step 3: 运行转录
 
 根据 Step 2.5 中用户选择的转录方式（配置中的 `mode` 字段）执行对应脚本。
@@ -208,6 +217,8 @@ python <skill_dir>/scripts/transcribe_local.py --config transcribe_config.json
 ```
 pip install faster-whisper pyannote.audio
 ```
+
+> **模型下载镜像：** 脚本已内置 HuggingFace 镜像站（`hf-mirror.com`），首次运行时模型会从镜像站下载，避免国内无法访问 HuggingFace 的问题。如需自定义，设置环境变量 `HF_ENDPOINT`。
 
 脚本执行（逐段处理）：
 1. 加载 pyannote.audio 声纹分离模型（`pyannote/speaker-diarization-3.1`，首次使用自动下载）
@@ -515,6 +526,7 @@ Qwen3-ASR-Flash 不直接支持说话人分离，fun-asr 虽支持但需 OSS 文
 - **转录 API**：使用 `dashscope.MultiModalConversation.call(model="qwen3-asr-flash")`，不要用 `Transcription.call`（后者签名已变更）
 - **转录方式选择**：转录前必须执行 Step 2.5 询问用户选择转录方式，并明确告知本地转录质量较差。优先推荐云端 Qwen3-ASR-Flash（准确率高），本地 faster-whisper + pyannote.audio 仅作为备选（中文质量明显较差）
 - **本地声纹分离**：使用 pyannote.audio（`pyannote/speaker-diarization-3.1`），需 HuggingFace Token + 接受模型条款，采访场景固定 2 人
+- **HuggingFace 模型下载镜像**：本地转录脚本已内置 `hf-mirror.com` 镜像站（通过 `os.environ.setdefault("HF_ENDPOINT", ...)`），避免国内无法下载 faster-whisper 和 pyannote 模型。如需更换镜像或直连，设置 `HF_ENDPOINT` 环境变量即可覆盖
 - Windows 路径使用正斜杠 / ，避免中文路径传给 API
 - **Windows 下 `bc` 不可用**：数值计算用 Python 替代，不要在 bash 中用 `bc` 做浮点比较
 - **bash heredoc 会吃掉 `\s` 转义**：正则表达式需写入 .py 文件执行，不要用 inline heredoc 传正则

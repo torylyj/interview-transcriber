@@ -13,6 +13,11 @@ faster-whisper + pyannote.audio 本地转录脚本
 """
 
 import os
+
+# 设置 HuggingFace 镜像站，避免国内无法下载模型
+# 使用 setdefault：如用户已自行设置 HF_ENDPOINT 则不覆盖
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 import sys
 import json
 import argparse
@@ -34,7 +39,9 @@ def load_whisper_model(model_size: str):
         print("错误: faster-whisper 未安装，请执行: pip install faster-whisper")
         sys.exit(1)
 
+    hf_endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
     print(f"加载 faster-whisper 模型: {model_size}（首次使用会自动下载）...")
+    print(f"  模型下载源: {hf_endpoint}")
     return WhisperModel(model_size, device="auto", compute_type="auto")
 
 
@@ -46,7 +53,9 @@ def load_diarization_pipeline(hf_token: str):
         print("错误: pyannote.audio 未安装，请执行: pip install pyannote.audio")
         sys.exit(1)
 
+    hf_endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
     print("加载 pyannote.audio 声纹分离模型（首次使用会自动下载）...")
+    print(f"  模型下载源: {hf_endpoint}")
     pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
         use_auth_token=hf_token,
