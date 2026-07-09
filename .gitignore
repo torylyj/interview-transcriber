@@ -1,0 +1,11 @@
+# 临时文件
+_seg*.mp3
+_upload.md
+*_raw.txt
+*segments.json
+transcribe_config.json
+__pycache__/
+*.pyc
+
+# 环境文件
+.env
