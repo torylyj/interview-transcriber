@@ -1,7 +1,7 @@
 ---
 name: interview-transcriber
 description: |
-  采访视频全流程处理技能。覆盖：从视频文件提取人物静帧 -> 视频转 MP3 音频 -> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（faster-whisper + pyannote.audio 声纹分离，质量较差）-> LLM 智能说话人识别（区分采访者/受访人） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 生成 Markdown 文档（第一行嵌入静帧） -> 可选输出到在线文档平台/本地文件等。
+  采访视频全流程处理技能。覆盖：从视频文件提取人物静帧 -> 视频转 MP3 音频 -> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（faster-whisper + pyannote.audio 声纹分离，质量较差）-> LLM 智能说话人识别（区分采访者/受访人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 生成带时间码的 Markdown 文档（第一行嵌入静帧） -> 可选输出到在线文档平台/本地文件等。
   适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。
 agent_created: true
 ---
@@ -153,8 +153,8 @@ python <skill_dir>/scripts/transcribe_qwen.py --config transcribe_config.json
 
 脚本执行：
 1. 逐段调用 Qwen3-ASR-Flash API 转录（使用 `dashscope.MultiModalConversation.call(model="qwen3-asr-flash")`）
-2. 合并所有段的文本为原始转录文本
-3. 生成 <标题>.md（先不区分说话人，第一行嵌入静帧引用）
+2. 合并所有段的文本为带时间码的原始转录文本（每段以 `[MM:SS]` 开头，基于段偏移）
+3. 生成 <标题>.md（带时间码，先不区分说话人，第一行嵌入静帧引用）
 
 **优势：** 中文识别准确率高，标点/断句自然，专有名词识别好。
 
@@ -184,8 +184,8 @@ pip install faster-whisper pyannote.audio
    - **a. pyannote.audio 声纹分离**：识别段内不同说话人，输出带时间戳的说话人轮次（SPEAKER_00, SPEAKER_01, ...）
    - **b. faster-whisper 转录**：生成带时间戳的文本片段
    - **c. 时间戳对齐**：将每个 whisper 文本片段与 pyannote 说话人标签对齐（取片段中点对应的说话人）
-4. 合并所有段，输出带 `**SPEAKER_00**` / `**SPEAKER_01**` 标签的文本
-5. 生成 <标题>.md（第一行嵌入静帧引用）
+4. 合并所有段，输出带时间码和 `**SPEAKER_00**` / `**SPEAKER_01**` 标签的文本（时间码精确到秒）
+5. 生成 <标题>.md（带时间码 + SPEAKER 标签，第一行嵌入静帧引用）
 
 **模型选择建议（faster-whisper）：**
 | 模型 | 大小 | 速度 | 中文质量 | 说明 |
@@ -219,29 +219,30 @@ pip install faster-whisper pyannote.audio
 如果 Agent 本身即是 LLM（如 Claude Code、Codex、WorkBuddy 等），直接阅读转录文本并按以下 prompt 输出结果：
 
 ```
-You are a professional transcript editor. Below is a raw transcription of an interview video. The text contains dialogue from two speakers: the interviewer (采访者) and the interviewee (受访人), but they are mixed together in one continuous block.
+You are a professional transcript editor. Below is a raw transcription of an interview video. The text contains dialogue from two speakers: the interviewer (采访者) and the interviewee (受访人), but they are mixed together in one continuous block. Each line starts with a timestamp like [MM:SS] indicating its position in the video.
 
 Your task:
 1. Split the text into individual dialogue turns (each question and each answer should be separate).
-2. Label each turn with **采访者** or **受访人**.
+2. Label each turn with **采访者** or **受访人**, followed by the timestamp of its first line.
 3. Each turn should be on its own line(s), separated by a blank line.
 4. Do NOT merge multiple questions into one block or multiple answers into one block.
 5. Keep the original wording exactly as-is, do not paraphrase.
-6. If a short utterance like "嗯" or "明白" is from the interviewer, label it as 采访者.
+6. Preserve the timestamp at the start of each dialogue turn.
+7. If a short utterance like "嗯" or "明白" is from the interviewer, label it as 采访者.
 
 Output format:
-**采访者**
+**采访者** [MM:SS]
 [content]
 
-**受访人**
+**受访人** [MM:SS]
 [content]
 
-**采访者**
+**采访者** [MM:SS]
 [content]
 
 ...and so on for each turn.
 
-IMPORTANT: Output ONLY the labeled dialogue. No preamble, no summary, no explanation.
+IMPORTANT: Output ONLY the labeled dialogue with timestamps. No preamble, no summary, no explanation.
 
 Raw transcript:
 {raw_text}
@@ -255,26 +256,27 @@ Raw transcript:
 import dashscope
 dashscope.api_key = API_KEY
 
-prompt = """You are a professional transcript editor. Below is a raw transcription of an interview video. The text contains dialogue from two speakers: the interviewer (采访者) and the interviewee (受访人), but they are mixed together in one continuous block.
+prompt = """You are a professional transcript editor. Below is a raw transcription of an interview video. The text contains dialogue from two speakers: the interviewer (采访者) and the interviewee (受访人), but they are mixed together in one continuous block. Each line starts with a timestamp like [MM:SS] indicating its position in the video.
 
 Your task:
 1. Split the text into individual dialogue turns (each question and each answer should be separate).
-2. Label each turn with **采访者** or **受访人**.
+2. Label each turn with **采访者** or **受访人**, followed by the timestamp of its first line.
 3. Each turn should be on its own line(s), separated by a blank line.
 4. Do NOT merge multiple questions into one block or multiple answers into one block.
 5. Keep the original wording exactly as-is, do not paraphrase.
-6. If a short utterance like "嗯" or "明白" is from the interviewer, label it as 采访者.
+6. Preserve the timestamp at the start of each dialogue turn.
+7. If a short utterance like "嗯" or "明白" is from the interviewer, label it as 采访者.
 
 Output format:
-**采访者**
+**采访者** [MM:SS]
 [content]
 
-**受访人**
+**受访人** [MM:SS]
 [content]
 
 ...and so on for each turn.
 
-IMPORTANT: Output ONLY the labeled dialogue. No preamble, no summary, no explanation.
+IMPORTANT: Output ONLY the labeled dialogue with timestamps. No preamble, no summary, no explanation.
 
 Raw transcript:
 {raw_text}"""
@@ -293,6 +295,7 @@ result = response.output.choices[0].message.content
 
 ```
 以下是一段采访的转录文本，已通过声纹分离区分出两个说话人（SPEAKER_00 和 SPEAKER_01）。
+每段对话开头有时间码 [MM:SS]，表示该段在视频中的位置。
 请根据对话内容判断哪个是采访者（提问方），哪个是受访人（回答方），然后将标签替换为"采访者"和"受访人"。
 
 判断规则：
@@ -301,7 +304,8 @@ result = response.output.choices[0].message.content
 
 严格要求：
 1. 严格保持原文内容不变，只替换说话人标签
-2. 不要添加任何额外说明
+2. 保留每段对话开头的时间码
+3. 不要添加任何额外说明
 
 转录文本：
 {raw_text}
@@ -390,10 +394,13 @@ summary_content = response.output.choices[0].message.content
 
 ## 采访记录
 
-**采访者**
+**采访者** [00:00]
 <对话内容>
 
-**受访人**
+**受访人** [00:15]
+<对话内容>
+
+**采访者** [01:30]
 <对话内容>
 
 ...
@@ -439,7 +446,7 @@ dws doc media insert --node "<node_id>" --file "人物静帧.jpg" --index 0 -y
 - **内容摘要**：LLM 生成的 3-5 句话概括（Step 3.6 生成）
 - **人物信息**：受访人关键信息表格（Step 3.6 生成）
 - 元数据：转录工具、说话人识别方法、摘要生成方法、转录日期
-- 正文：带 `**采访者**` / `**受访人**` 标签的对话内容
+- 正文：带时间码和 `**采访者**` / `**受访人**` 标签的对话内容（如 `**采访者** [05:30]`）
 
 可直接交付给用户，或后续按需上传到任意平台。
 

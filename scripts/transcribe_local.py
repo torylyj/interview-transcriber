@@ -1,6 +1,7 @@
 """
 faster-whisper + pyannote.audio 本地转录脚本
 逐段处理 4 分钟 MP3 切片：声纹分离 + 语音转文字 + 时间戳对齐。
+输出带精确时间码的转录文本。
 
 ⚠️ 质量警告：本地 faster-whisper 的中文识别准确率明显低于
    Qwen3-ASR-Flash 云端方案，仅建议在无网络/API不可用时使用。
@@ -15,6 +16,14 @@ import os
 import sys
 import json
 import argparse
+
+
+def format_timestamp(seconds: float) -> str:
+    """将秒数格式化为 [MM:SS] 时间码"""
+    total = int(seconds)
+    mm = total // 60
+    ss = total % 60
+    return f"[{mm:02d}:{ss:02d}]"
 
 
 def load_whisper_model(model_size: str):
@@ -134,8 +143,41 @@ def merge_aligned_segments(all_aligned: list, segment_offsets: list) -> list:
     return merged
 
 
-def format_markdown(aligned_items: list, title: str, video_file: str, model_size: str) -> str:
-    """生成带说话人标签的 Markdown 文档"""
+def generate_raw_text(merged: list) -> str:
+    """生成带时间码和 SPEAKER 标签的原始文本，供 LLM 做角色映射"""
+    lines = []
+    current_speaker = None
+    current_texts = []
+    current_start = 0.0
+
+    for item in merged:
+        speaker = item["speaker"]
+        if speaker != current_speaker:
+            # 输出上一个说话人的内容
+            if current_speaker is not None and current_texts:
+                ts = format_timestamp(current_start)
+                lines.append(f"{ts} **{current_speaker}**")
+                lines.append("".join(current_texts))
+                lines.append("")
+
+            current_speaker = speaker
+            current_texts = [item["text"]]
+            current_start = item["start"]
+        else:
+            current_texts.append(item["text"])
+
+    # 输出最后一个说话人的内容
+    if current_speaker is not None and current_texts:
+        ts = format_timestamp(current_start)
+        lines.append(f"{ts} **{current_speaker}**")
+        lines.append("".join(current_texts))
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def generate_markdown(merged: list, title: str, video_file: str, model_size: str) -> str:
+    """生成带时间码和 SPEAKER 标签的 Markdown 文档"""
     lines = [
         f"# {title}",
         "",
@@ -144,32 +186,37 @@ def format_markdown(aligned_items: list, title: str, video_file: str, model_size
         f"> 视频文件: {video_file}",
         f"> 转录模型: faster-whisper ({model_size}) + pyannote.audio 声纹分离",
         f"> 说话人识别: pyannote.audio 声纹分离（SPEAKER 标签，待 LLM 角色映射）",
+        f"> 时间码: 精确到秒（基于 whisper 时间戳）",
         "",
         "---",
         "",
     ]
 
-    # 合并同一说话人的连续片段
+    # 合并同一说话人的连续片段，并添加时间码
     current_speaker = None
     current_texts = []
+    current_start = 0.0
 
-    for item in aligned_items:
+    for item in merged:
         speaker = item["speaker"]
         if speaker != current_speaker:
             # 输出上一个说话人的内容
             if current_speaker is not None and current_texts:
-                lines.append(f"**{current_speaker}**")
+                ts = format_timestamp(current_start)
+                lines.append(f"**{current_speaker}** {ts}")
                 lines.append("".join(current_texts))
                 lines.append("")
 
             current_speaker = speaker
             current_texts = [item["text"]]
+            current_start = item["start"]
         else:
             current_texts.append(item["text"])
 
     # 输出最后一个说话人的内容
     if current_speaker is not None and current_texts:
-        lines.append(f"**{current_speaker}**")
+        ts = format_timestamp(current_start)
+        lines.append(f"**{current_speaker}** {ts}")
         lines.append("".join(current_texts))
         lines.append("")
 
@@ -177,7 +224,7 @@ def format_markdown(aligned_items: list, title: str, video_file: str, model_size
 
 
 def main():
-    parser = argparse.ArgumentParser(description="faster-whisper + pyannote.audio 本地转录")
+    parser = argparse.ArgumentParser(description="faster-whisper + pyannote.audio 本地转录（带时间码）")
     parser.add_argument("--config", required=True, help="JSON 配置文件路径")
     parser.add_argument("--model", default=None, help="覆盖配置中的模型大小 (tiny/base/small/medium/large-v3)")
 
@@ -244,19 +291,15 @@ def main():
     merged = merge_aligned_segments(all_aligned, segment_offsets)
     print(f"\n合并完成: 共 {len(merged)} 个片段")
 
-    # 保存原始文本（带 SPEAKER 标签）
-    raw_lines = []
-    for item in merged:
-        raw_lines.append(f"**{item['speaker']}**\n{item['text']}\n")
-    raw_text = "\n".join(raw_lines)
-
+    # 保存原始文本（带时间码 + SPEAKER 标签）
+    raw_text = generate_raw_text(merged)
     raw_path = os.path.join(output_dir, f"{doc_title}_raw.txt")
     with open(raw_path, "w", encoding="utf-8") as f:
         f.write(raw_text)
-    print(f"原始文本保存: {raw_path}")
+    print(f"原始文本（带时间码）保存: {raw_path}")
 
-    # 生成 Markdown
-    md_content = format_markdown(merged, doc_title, video_file, model_size)
+    # 生成 Markdown（带时间码 + SPEAKER 标签）
+    md_content = generate_markdown(merged, doc_title, video_file, model_size)
     md_path = os.path.join(output_dir, f"{doc_title}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_content)
@@ -268,7 +311,7 @@ def main():
         speaker_counts[item["speaker"]] = speaker_counts.get(item["speaker"], 0) + 1
     print(f"\n说话人片段分布: {speaker_counts}")
 
-    print("\n🎉 本地转录完成！请继续执行 Step 3.5 LLM 角色映射（SPEAKER → 采访者/受访人）。")
+    print("\n🎉 本地转录完成！请继续执行 Step 3.5 LLM 角色映射（保留时间码）。")
     return md_path
 
 
