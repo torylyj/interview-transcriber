@@ -1,7 +1,7 @@
 ---
 name: interview-transcriber
 description: |
-  采访视频全流程处理技能。覆盖：从视频文件提取人物静帧 -> 视频转 MP3 音频 -> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（faster-whisper + pyannote.audio 声纹分离，质量较差）-> LLM 智能说话人识别（区分采访者/受访人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 生成带时间码的 Markdown 文档（第一行嵌入静帧） -> 可选输出到在线文档平台/本地文件等。
+  采访视频全流程处理技能。覆盖：从视频文件提取人物静帧 -> 视频转 MP3 音频 -> 询问用户选择转录方式（云端/本地，告知质量差异）-> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（faster-whisper + pyannote.audio 声纹分离，质量较差）-> LLM 智能说话人识别（区分采访者/受访人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 生成带时间码的 Markdown 文档（第一行嵌入静帧） -> 可选输出到在线文档平台/本地文件等。
   适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。
 agent_created: true
 ---
@@ -14,7 +14,7 @@ agent_created: true
 
 **核心流程（Step 1-3.6）** 与输出目标无关，始终执行。**输出分发（Step 4）** 根据用户需求选择目标平台。
 
-**转录方式选择：** Step 3 支持两种转录方式，开始前应询问用户：
+**转录方式选择：** Step 2.5 会在转录前询问用户选择转录方式，并告知质量差异：
 - **云端转录（Qwen3-ASR-Flash）** — 推荐，中文识别准确率高，LLM 语义分析区分说话人，需 DashScope API Key
 - **本地转录（faster-whisper + pyannote.audio）** — 无云端 API 依赖，pyannote 声纹分离区分说话人，但中文识别质量明显较差，需 HuggingFace Token
 
@@ -69,7 +69,7 @@ ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 480 
 ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 720 -t 260 _seg4.mp3 -y
 ```
 
-### Step 2: 确定文档标题 & 创建转录配置
+### Step 2: 确定文档标题
 
 **文档命名规范：**
 
@@ -91,7 +91,39 @@ ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 720 
 2. 如有特色可替换：如"云南高考第七"、"休学创业中戏生"
 3. 严格控制在10个中文字符以内，简洁有力
 
-在工作目录创建 transcribe_config.json：
+### Step 2.5: 询问转录方式 & 创建转录配置
+
+**转录前必须询问用户选择哪种转录方式，并明确告知质量差异。**
+
+向用户提出以下问题（可直接展示或通过 Agent 的交互机制提问）：
+
+---
+
+> 请选择转录方式：
+>
+> **A. 云端转录（Qwen3-ASR-Flash）** — ✅ 推荐
+> - 中文识别准确率高，标点断句自然，专有名词识别好
+> - 需要 DashScope API Key（阿里云百炼，有免费额度）
+> - 网络环境要求：需要联网
+>
+> **B. 本地转录（faster-whisper + pyannote.audio）** — ⚠️ 质量较差
+> - 无需云端 API，离线可用
+> - **中文识别质量明显较差**：人名/专有名词错误率高，标点不准确
+> - 可能影响后续说话人识别和摘要生成的效果
+> - 需要 HuggingFace Token + 安装额外依赖
+> - 仅建议在无网络环境或 API 不可用时使用
+>
+> 请回复 A 或 B：
+
+---
+
+**等待用户回复后，根据选择创建配置：**
+
+- 用户选 A（云端）→ 创建 `mode: "cloud"` 配置，需确认 DashScope API Key
+- 用户选 B（本地）→ 创建 `mode: "local"` 配置，需确认 HuggingFace Token
+- 如用户未明确选择，默认使用云端转录（A），并告知用户
+
+根据用户选择，在工作目录创建 transcribe_config.json：
 
 **云端转录配置（mode: cloud）：**
 ```
@@ -139,7 +171,7 @@ ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 720 
 
 ### Step 3: 运行转录
 
-根据 Step 2 中配置的 `mode` 字段选择转录方式。**开始前应询问用户选择哪种方式。**
+根据 Step 2.5 中用户选择的转录方式（配置中的 `mode` 字段）执行对应脚本。
 
 > `<skill_dir>` 指本技能文件所在目录。
 
@@ -481,7 +513,7 @@ Qwen3-ASR-Flash 不直接支持说话人分离，fun-asr 虽支持但需 OSS 文
 - **摘要与人物信息必须生成**：说话人识别完成后必须执行 Step 3.6，生成内容摘要和受访人人物信息，插入到文档正文最前面（静帧之后、元数据之前），让读者快速了解采访核心内容和受访人背景
 - **LLM 调用方式**：如 Agent 自身即是 LLM（Claude Code、Codex 等），可直接在对话中执行 Step 3.5/3.6 的语义分析，无需额外 API 调用；否则使用 Python 调用 Qwen-Plus API
 - **转录 API**：使用 `dashscope.MultiModalConversation.call(model="qwen3-asr-flash")`，不要用 `Transcription.call`（后者签名已变更）
-- **转录方式选择**：优先使用云端 Qwen3-ASR-Flash（准确率高），本地 faster-whisper + pyannote.audio 仅作为备选（中文质量明显较差），选择前应告知用户质量差异
+- **转录方式选择**：转录前必须执行 Step 2.5 询问用户选择转录方式，并明确告知本地转录质量较差。优先推荐云端 Qwen3-ASR-Flash（准确率高），本地 faster-whisper + pyannote.audio 仅作为备选（中文质量明显较差）
 - **本地声纹分离**：使用 pyannote.audio（`pyannote/speaker-diarization-3.1`），需 HuggingFace Token + 接受模型条款，采访场景固定 2 人
 - Windows 路径使用正斜杠 / ，避免中文路径传给 API
 - **Windows 下 `bc` 不可用**：数值计算用 Python 替代，不要在 bash 中用 `bc` 做浮点比较
