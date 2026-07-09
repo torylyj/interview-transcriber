@@ -14,6 +14,40 @@
 | 人物信息 | LLM 提取受访人学校/专业/年级/家乡/关键经历/核心观点 |
 | 多平台分发 | 本地 Markdown / 钉钉文档 / 飞书 / Notion / 其他平台 |
 
+## ⬇️ 一键安装
+
+**WorkBuddy（默认）：**
+
+```bash
+git clone https://github.com/torylyj/interview-transcriber.git ~/.workbuddy/skills/interview-transcriber
+```
+
+**其他 Agent（替换 `<skills_dir>` 为你的 Agent 技能目录）：**
+
+```bash
+git clone https://github.com/torylyj/interview-transcriber.git <skills_dir>/interview-transcriber
+```
+
+<details>
+<summary>没有 git？用 curl 下载</summary>
+
+```bash
+curl -sL https://github.com/torylyj/interview-transcriber/archive/refs/heads/main.tar.gz | tar xz -C /tmp && mv /tmp/interview-transcriber-main ~/.workbuddy/skills/interview-transcriber
+```
+
+</details>
+
+<details>
+<summary>Windows PowerShell</summary>
+
+```powershell
+git clone https://github.com/torylyj/interview-transcriber.git $HOME/.workbuddy/skills/interview-transcriber
+```
+
+</details>
+
+安装完成后，在你的 Agent 对话中提到"转录采访视频"即可自动触发该技能。
+
 ## 🤖 Agent 兼容性
 
 本技能以 Markdown 指令文件（`SKILL.md`）形式编写，不依赖任何特定平台。任何支持 bash 命令执行、文件读写、Python 脚本运行的 AI 编码代理均可使用：
