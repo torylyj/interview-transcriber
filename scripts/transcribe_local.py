@@ -358,7 +358,7 @@ def generate_raw_text(merged: list) -> str:
 def generate_markdown(merged: list, title: str, video_file: str, model_name: str) -> str:
     """生成带时间码和 SPEAKER 标签的 Markdown 文档"""
     lines = [
-        f"# \U0001F4CC {title}",
+        f"# {title}",
         "",
         '<div align="center">',
         '<img src="人物静帧.jpg" width="280" />',
@@ -366,12 +366,12 @@ def generate_markdown(merged: list, title: str, video_file: str, model_name: str
         "",
         "---",
         "",
-        "> \U0001F4CB **文档信息**",
+        "> \U0001F4CB 文档信息",
         ">",
-        f"> \U0001F3AC 视频文件：{video_file}",
-        f"> \U0001F6E0\uFE0F 转录模型：{model_name}",
-        "> \U0001F50D 说话人识别：pyannote.audio 声纹分离（SPEAKER 标签，待 LLM 角色映射）",
-        "> \u23F1\uFE0F 时间码：精确到秒",
+        f"> 视频文件：{video_file}",
+        f"> 转录模型：{model_name}",
+        "> 说话人识别：pyannote.audio 声纹分离（SPEAKER 标签，待 LLM 角色映射）",
+        "> 时间码：精确到秒",
         "",
         "---",
         "",
