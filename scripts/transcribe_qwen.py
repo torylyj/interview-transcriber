@@ -83,15 +83,25 @@ def generate_raw_text(all_text_parts: list) -> str:
 def generate_markdown(all_text_parts: list, title: str, video_file: str) -> str:
     """生成带时间码的 Markdown 文档（不含说话人标签，待 LLM 处理）"""
     lines = [
-        f"# {title}",
+        f"# \U0001F4CC {title}",
         "",
-        f"![人物静帧](人物静帧.jpg)",
-        "",
-        f"> 视频文件: {video_file}",
-        f"> 转录模型: 通义千问 Qwen3-ASR-Flash (阿里云百炼)",
-        f"> 时间码: 段级精度（4分钟粒度），段内为估算值",
+        '<div align="center">',
+        '<img src="人物静帧.jpg" width="280" />',
+        "</div>",
         "",
         "---",
+        "",
+        "> \U0001F4CB **文档信息**",
+        ">",
+        f"> \U0001F3AC 视频文件：{video_file}",
+        "> \U0001F6E0\uFE0F 转录模型：通义千问 Qwen3-ASR-Flash（阿里云百炼）",
+        "> \u23F1\uFE0F 时间码：段级精度（4分钟粒度），段内为估算值",
+        "",
+        "---",
+        "",
+        "## \U0001F4AC 采访记录",
+        "",
+        "> \u23F3 待 LLM 说话人识别（Step 3.5）处理后替换为带说话人标签的对话",
         "",
     ]
 
