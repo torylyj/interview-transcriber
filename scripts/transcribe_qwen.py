@@ -80,20 +80,27 @@ def generate_raw_text(all_text_parts: list) -> str:
     return "\n".join(lines)
 
 
-def generate_markdown(all_text_parts: list, title: str, video_file: str) -> str:
-    """生成带时间码的 Markdown 文档（不含说话人标签，待 LLM 处理）"""
-    lines = [
-        f"# {title}",
-        "",
-        '<div align="center">',
-        '<img src="人物静帧.jpg" width="280" />',
-        "</div>",
-        "",
+def generate_markdown(all_text_parts: list, title: str, source_file: str, frame_path=None) -> str:
+    """生成带时间码的 Markdown 文档（不含说话人标签，待 LLM 处理）
+
+    frame_path 为 None 时（音频输入）不输出静帧图。
+    """
+    lines = [f"# {title}", ""]
+
+    if frame_path:
+        lines += [
+            '<div align="center">',
+            f'<img src="{frame_path}" width="280" />',
+            "</div>",
+            "",
+        ]
+
+    lines += [
         "---",
         "",
         "> \U0001F4CB 文档信息",
         ">",
-        f"> 视频文件：{video_file}",
+        f"> 源文件：{source_file}",
         "> 转录模型：通义千问 Qwen3-ASR-Flash（阿里云百炼）",
         "> 时间码：段级精度（4分钟粒度），段内为估算值",
         "",
@@ -128,7 +135,8 @@ def main():
     segments = config["segments"]
     output_dir = config.get("output_dir", ".")
     doc_title = config.get("title", "转录文档")
-    video_file = config.get("video_file", "")
+    source_file = config.get("source_file", config.get("video_file", ""))
+    frame_path = config.get("frame_path")
 
     # Step 1: 转录
     print(f"\n{'='*50}")
@@ -147,7 +155,7 @@ def main():
     print(f"原始文本（带时间码）保存: {raw_path}")
 
     # Step 3: 生成 Markdown（带时间码，不含说话人标签）
-    md_content = generate_markdown(all_text_parts, doc_title, video_file)
+    md_content = generate_markdown(all_text_parts, doc_title, source_file, frame_path)
 
     md_path = os.path.join(output_dir, f"{doc_title}.md")
     with open(md_path, "w", encoding="utf-8") as f:

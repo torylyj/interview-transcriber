@@ -18,22 +18,27 @@ pip install dashscope
 {
   "api_key": "sk-xxxxxxxxxxxxxxxx",
   "title": "清华26-0607 采访转录文本",
-  "video_file": "VID20260607150604.mp4",
+  "source_file": "VID20260607150604.mp4",
+  "input_type": "video",
+  "audio_file": "输出.mp3",
   "frame_path": "人物静帧.jpg",
-  "output_dir": "./output",
-  "segments": [
-    {"file": "./_seg1.mp3", "offset": 0},
-    {"file": "./_seg2.mp3", "offset": 240},
-    {"file": "./_seg3.mp3", "offset": 480},
-    {"file": "./_seg4.mp3", "offset": 720}
-  ]
+  "output_dir": "./output"
 }
 ```
 
-## 音频分段要求
+> 说明：
+> - `source_file`：原始输入文件名（视频或音频均可）
+> - `input_type`：`video` 或 `audio`（音频输入时 `frame_path` 设为 `null`，不输出静帧）
+> - `audio_file`：Step 1 产出的工作音频（视频转出的 MP3，或音频本身）
+> - `segments` **不在本文件预填**，由 Step 2.6 在选定转录方式后根据是否切段写入
+>   - 切段时：`[{"file": "_seg1.mp3", "offset": 0}, {"file": "_seg2.mp3", "offset": 240}, ...]`
+>   - 不切段时：`[{"file": "输出.mp3", "offset": 0}]`
 
-- 每段不超过 5 分钟（Qwen3-ASR-Flash 的限制）
-- 使用 ffmpeg 分段：
+## 音频分段要求（Step 2.6 决策）
+
+- 云端（Qwen3-ASR-Flash）单次调用上限 **5 分钟**：超过 5 分钟必须切段（按 4 分钟/段，留余量）
+- 本地（SenseVoice / Paraformer / whisper）无硬限制：长音频建议切段控制内存，短音频可不切（询问用户）
+- 使用 ffmpeg 分段（4 分钟/段）：
   ```bash
   ffmpeg -i input.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 0 -t 240 _seg1.mp3 -y
   ffmpeg -i input.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 240 -t 240 _seg2.mp3 -y

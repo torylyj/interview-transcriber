@@ -355,20 +355,27 @@ def generate_raw_text(merged: list) -> str:
     return "\n".join(lines)
 
 
-def generate_markdown(merged: list, title: str, video_file: str, model_name: str) -> str:
-    """生成带时间码和 SPEAKER 标签的 Markdown 文档"""
-    lines = [
-        f"# {title}",
-        "",
-        '<div align="center">',
-        '<img src="人物静帧.jpg" width="280" />',
-        "</div>",
-        "",
+def generate_markdown(merged: list, title: str, source_file: str, model_name: str, frame_path=None) -> str:
+    """生成带时间码和 SPEAKER 标签的 Markdown 文档
+
+    frame_path 为 None 时（音频输入）不输出静帧图。
+    """
+    lines = [f"# {title}", ""]
+
+    if frame_path:
+        lines += [
+            '<div align="center">',
+            f'<img src="{frame_path}" width="280" />',
+            "</div>",
+            "",
+        ]
+
+    lines += [
         "---",
         "",
         "> \U0001F4CB 文档信息",
         ">",
-        f"> 视频文件：{video_file}",
+        f"> 源文件：{source_file}",
         f"> 转录模型：{model_name}",
         "> 说话人识别：pyannote.audio 声纹分离（SPEAKER 标签，待 LLM 角色映射）",
         "> 时间码：精确到秒",
@@ -425,7 +432,8 @@ def main():
 
     output_dir = config.get("output_dir", ".")
     doc_title = config.get("title", "转录文档")
-    video_file = config.get("video_file", "")
+    source_file = config.get("source_file", config.get("video_file", ""))
+    frame_path = config.get("frame_path")
     hf_token = config.get("hf_token", "")
     segments = config.get("segments", [])
 
@@ -518,7 +526,7 @@ def main():
     print(f"原始文本（带时间码）保存: {raw_path}")
 
     # 生成 Markdown
-    md_content = generate_markdown(merged, doc_title, video_file, model_cfg["name"])
+    md_content = generate_markdown(merged, doc_title, source_file, model_cfg["name"], frame_path)
     md_path = os.path.join(output_dir, f"{doc_title}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_content)
