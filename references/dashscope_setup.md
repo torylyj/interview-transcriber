@@ -37,7 +37,7 @@ pip install dashscope
 ## 音频分段要求（Step 2.6 决策）
 
 - 云端（Qwen3-ASR-Flash）单次调用上限 **5 分钟**：超过 5 分钟必须切段（按 4 分钟/段，留余量）
-- 本地（SenseVoice / Paraformer / whisper）无硬限制：长音频建议切段控制内存，短音频可不切（询问用户）
+- 本地（SenseVoice / Paraformer / whisper）无硬限制：长音频由模型自动切段控制内存，短音频整段直接传（均不询问用户）
 - 使用 ffmpeg 分段（4 分钟/段）：
   ```bash
   ffmpeg -i input.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 0 -t 240 _seg1.mp3 -y

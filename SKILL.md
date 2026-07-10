@@ -1,7 +1,7 @@
 ---
 name: interview-transcriber
 description: |
-  采访转录全流程处理技能（支持视频与音频输入）。覆盖：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 询问用户选择转录方式（云端/本地，告知质量差异）-> 选完方式后确认是否切段 -> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（SenseVoice/Paraformer 魔搭社区中文模型，推荐 / faster-whisper large-v3 通用备选，可选 pyannote.audio 声纹分离）-> LLM 智能说话人识别（区分采访者/受访人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 生成带时间码的 Markdown 文档（视频输入时第一行嵌入静帧） -> 可选输出到在线文档平台/本地文件等。
+  采访转录全流程处理技能（支持视频与音频输入）。覆盖：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 询问用户选择转录方式（云端/本地，告知质量差异）-> 选完方式后由模型按能力自动决定是否切段 -> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（SenseVoice/Paraformer 魔搭社区中文模型，推荐 / faster-whisper large-v3 通用备选，可选 pyannote.audio 声纹分离）-> LLM 智能说话人识别（区分采访者/受访人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 生成带时间码的 Markdown 文档（视频输入时第一行嵌入静帧） -> 可选输出到在线文档平台/本地文件等。
   适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后，会主动询问用户希望将整理好的文档发送到哪里。
 agent_created: true
 ---
@@ -10,7 +10,7 @@ agent_created: true
 
 ## 概述
 
-将采访内容（视频或音频）全流程处理为带说话人识别的转录文档：输入预处理（音频跳过转 MP3、无静帧）-> 选转录方式 -> 确认是否切段 -> 转录（云端/本地可选）-> 说话人识别 -> 生成摘要与人物信息 -> 生成 Markdown -> 可选分发到在线文档平台。全部处理完成后主动询问用户要将文档发送到哪里。
+将采访内容（视频或音频）全流程处理为带说话人识别的转录文档：输入预处理（音频跳过转 MP3、无静帧）-> 选转录方式 -> 模型按能力自动决定是否切段 -> 转录（云端/本地可选）-> 说话人识别 -> 生成摘要与人物信息 -> 生成 Markdown -> 可选分发到在线文档平台。全部处理完成后主动询问用户要将文档发送到哪里。
 
 **核心流程（Step 1-3.6）** 与输出目标无关，始终执行。**输出分发（Step 4）** 根据用户需求选择目标平台。
 
@@ -81,7 +81,7 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 # 先将每个文件转为统一格式的 MP3，再用 ffmpeg concat filter 合并
 ```
 
-> **切段不在本步进行**：是否切段、如何切段，取决于 Step 2.5 选定的转录方式，统一在 **Step 2.6** 中决策（详见该步）。
+> **切段不在 Step 1 进行**：是否切段由 Agent 按所选转录模型的时长能力在 **Step 2.6** 中自动决策（不询问用户，详见该步）。
 
 ### Step 2: 确定文档标题
 
@@ -244,7 +244,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_HF_TOKEN
 ```
 
-### Step 2.6: 确认是否切段（选完方式之后执行）
+### Step 2.6: 切段决策（模型自动，不询问用户）
 
 切段决策必须放在 Step 2.5 选定转录方式**之后**——不同方式对单次音频时长的要求不同，因此要先知道选了哪种，才能决定要不要切、怎么切。
 
@@ -253,20 +253,18 @@ huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_HF_TOKEN
 DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "输出.mp3")
 ```
 
-**b. 根据所选方式判断并确认**
+**b. 按所选模型能力自动决策（不询问用户）**
 
 - **云端（Qwen3-ASR-Flash）**：单次调用时长上限 **5 分钟**
-  - 时长 > 5 分钟 → **必须切段**（自动按 4 分钟/段切，留 1 分钟余量避免边界截断），告知用户「音频约 X 分钟，已自动切为 N 段」
+  - 时长 > 5 分钟 → **必须切段**（自动按 4 分钟/段切，留 1 分钟余量避免边界截断）。仅记录日志，不打断用户确认
   - 时长 ≤ 5 分钟 → 无需切段，整段直接传入
-- **本地（SenseVoice / Paraformer / whisper）**：无单次时长硬限制
-  - 较长音频（如 > 20 分钟）→ 建议切段以控制内存与稳定性，**询问用户是否切段**
+- **本地（SenseVoice / Paraformer / whisper）**：无单次时长硬限制，但长音频会显著增加内存占用与崩溃风险
+  - 较长音频（如 > 20 分钟）→ Agent **自动切段**（按 4 分钟/段）以控制内存与稳定性
   - 较短音频 → 直接整段传入，无需切段
 
-**c. 与用户确认的话术（本地场景，给选择权）**
+> 切段决策完全由 Agent 基于所选模型的时长能力自动完成，**不向用户提问、不打断流程**。
 
-> 音频时长约 X 分钟。本地转录没有单次时长限制，为控制内存我建议切成 4 分钟一段（共 N 段）；也可以整段直接转录。你倾向哪种？
-
-**d. 切段命令（需要切段时，按 4 分钟/段）**
+**c. 切段命令（需要切段时，按 4 分钟/段）**
 ```
 ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 0 -t 240 _seg1.mp3 -y
 ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 240 -t 240 _seg2.mp3 -y
@@ -690,7 +688,7 @@ Qwen3-ASR-Flash 不直接支持说话人分离，fun-asr 虽支持但需 OSS 文
 - **转录 API**：使用 `dashscope.MultiModalConversation.call(model="qwen3-asr-flash")`，不要用 `Transcription.call`（后者签名已变更）
 - **转录方式选择**：转录前必须执行 Step 2.5 询问用户选择转录方式，并明确告知本地转录质量差异。优先推荐云端 Qwen3-ASR-Flash（准确率高），本地默认使用 SenseVoice（中文质量接近云端，从魔搭社区下载），faster-whisper 仅作为通用备选
 - **输入类型自动识别**：本技能同时支持视频与音频输入。视频才需要「提取静帧 + 转 MP3」；音频直接跳过 MP3 转换（本身即为音频）且不提取静帧，元数据中 `input_type` 标记 video/audio、`frame_path` 为 null 时不输出静帧图
-- **切段决策在选方式之后**：是否切段取决于 Step 2.5 选定的转录方式——云端 Qwen3-ASR-Flash 单次上限 5 分钟（超时必须切），本地模型无硬限制（长音频建议切、短音频可不切并询问用户）。切段统一在 Step 2.6 完成，未切段时 segments 仅含整段一项（offset 为 0）
+- **切段决策在选方式之后**：是否切段取决于 Step 2.5 选定的转录方式——云端 Qwen3-ASR-Flash 单次上限 5 分钟（超时必须切），本地模型无硬限制（长音频由模型自动切、短音频整段，均不询问用户）。切段统一在 Step 2.6 完成，未切段时 segments 仅含整段一项（offset 为 0）
 - **本地声纹分离**：使用 pyannote.audio（`pyannote/speaker-diarization-3.1`），需 HuggingFace Token + 接受模型条款，采访场景固定 2 人。无 Token 时可跳过声纹分离，转录后使用 LLM 语义切分说话人（同云端模式）
 - **HuggingFace 模型下载镜像**：仅 faster-whisper 和 pyannote.audio 需要 HuggingFace。SenseVoice/Paraformer 从魔搭社区下载（国内直连）。faster-whisper 脚本内置多镜像站自动降级（hf-mirror.com → HuggingFace 官方），全部失败后打印手动下载指南。pyannote.audio 需 HuggingFace Token
 - Windows 路径使用正斜杠 / ，避免中文路径传给 API
