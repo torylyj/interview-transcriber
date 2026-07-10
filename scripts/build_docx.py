@@ -128,13 +128,16 @@ def build(doc, data, base_dir):
 
     # ── 文档信息 ──
     doc.add_heading("\U0001F4CB 文档信息", level=1)
+    tool = data.get("transcription_tool", "")
+    tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "精确到秒"
     info_lines = [
         f"源文件：{data.get('source_file', '')}",
         f"输入类型：{data.get('input_type', '')}",
-        f"转录工具：{data.get('transcription_tool', '')}",
+        f"转录工具：{tool}",
         f"说话人识别：{data.get('speaker_method', 'LLM 语义分析')}",
         f"摘要与人物信息：{data.get('summary_method', 'LLM 生成')}",
         f"转录日期：{data.get('date', '')}",
+        f"时间码精度：{tc_accuracy}",
     ]
     q = doc.add_paragraph()
     q.paragraph_format.left_indent = Inches(0.3)
@@ -175,13 +178,16 @@ def export_markdown(data, md_path):
     for item in data.get("person_info") or []:
         lines.append(f"| {item.get('field', '')} | {item.get('value', '')} |")
     lines += ["", "---", "", "## \U0001F4CB 文档信息", ""]
+    tool = data.get("transcription_tool", "")
+    tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "精确到秒"
     lines += [
         f"> 源文件：{data.get('source_file', '')}",
         f"> 输入类型：{data.get('input_type', '')}",
-        f"> 转录工具：{data.get('transcription_tool', '')}",
+        f"> 转录工具：{tool}",
         f"> 说话人识别：{data.get('speaker_method', 'LLM 语义分析')}",
         f"> 摘要与人物信息：{data.get('summary_method', 'LLM 生成')}",
         f"> 转录日期：{data.get('date', '')}",
+        f"> 时间码精度：{tc_accuracy}",
         "",
         "---",
         "",

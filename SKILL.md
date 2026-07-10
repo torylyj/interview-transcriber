@@ -1,8 +1,8 @@
 ---
 name: interview-transcriber
 description: |
-  采访转录全流程处理技能（支持视频与音频输入）。覆盖：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 询问用户选择转录方式（云端/本地，告知质量差异）-> 选完方式后由模型按能力自动决定是否切段 -> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（SenseVoice/Paraformer 魔搭社区中文模型，推荐 / faster-whisper large-v3 通用备选，可选 pyannote.audio 声纹分离）-> LLM 智能说话人识别（区分采访者/受访人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 直接生成带时间码的 Word 文档（.docx，全程无 Markdown 中间文件，视频输入时嵌入静帧）-> 自检并适度精简口语语气词 -> 可选输出到在线文档平台/本地文件等。
-  适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后，会主动询问用户希望将整理好的文档发送到哪里。
+  采访转录全流程处理技能（支持视频与音频输入）。默认使用本地转录（SenseVoice/Paraformer 魔搭社区中文模型，离线可用、无需 API Key）；可选云端转录（Qwen3-ASR-Flash，准确率更高，需 DashScope API Key）作为升级方案。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录（可选 pyannote.audio 声纹分离）-> LLM 智能说话人识别（支持多说话人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 直接生成带时间码的 Word 文档（.docx，全程无 Markdown 中间文件，视频输入时嵌入静帧）-> 自检并适度精简口语语气词 -> 交付前预览确认 -> 可选输出到在线文档平台/本地文件等。
+  适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后，会主动询问用户希望将整理好的文档发送到哪里，并提示云端转录作为更高精度的可选方案。
 agent_created: true
 ---
 
@@ -10,14 +10,14 @@ agent_created: true
 
 ## 概述
 
-将采访内容（视频或音频）全流程处理为带说话人识别的转录文档：输入预处理（音频跳过转 MP3、无静帧）-> 选转录方式 -> 模型按能力自动决定是否切段 -> 转录（云端/本地可选）-> 说话人识别 -> 生成摘要与人物信息 -> 直接生成 Word 文档（.docx，全程无 Markdown 中间文件）-> 自检精简语气词 -> 可选分发到在线文档平台。全部处理完成后主动询问用户要将文档发送到哪里。
+将采访内容（视频或音频）全流程处理为带说话人识别的转录文档：输入预处理（音频跳过转 MP3、无静帧）-> 默认本地转录（SenseVoice，离线可用）-> 模型按能力自动决定是否切段 -> 说话人识别（支持多说话人）-> 生成摘要与人物信息 -> 直接生成 Word 文档（.docx，全程无 Markdown 中间文件）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。全部处理完成后主动询问用户要将文档发送到哪里，并提示云端转录作为更高精度的可选方案。
 
 **核心流程（Step 1-3.6）** 与输出目标无关，始终执行。**输出分发（Step 4）** 根据用户需求选择目标平台。
 
-**转录方式选择：** Step 2.5 会在转录前询问用户选择转录方式，并告知质量差异：
-- **云端转录（Qwen3-ASR-Flash）** — 推荐，中文识别准确率高，LLM 语义分析区分说话人，需 DashScope API Key
-- **本地转录 — SenseVoice/Paraformer（推荐本地选项）** — 阿里达摩院中文模型，从魔搭社区下载，质量接近云端，无需 HuggingFace
+**转录方式选择（默认本地）：** 默认使用**本地转录（SenseVoice）**，离线可用、无需任何 API Key，开箱即用。仅当用户明确要求更高准确率、或主动提供 DashScope API Key 时，才切换为云端转录（Qwen3-ASR-Flash）。两者差异：
+- **本地转录（默认）— SenseVoice/Paraformer** — 阿里达摩院中文模型，从魔搭社区下载，中文质量优秀、接近云端，无需 HuggingFace、无需 API Key，离线可用
 - **本地转录 — faster-whisper large-v3（备选）** — 通用多语言模型，中文质量一般，需 HuggingFace 镜像
+- **云端转录（可选升级）— Qwen3-ASR-Flash** — 中文识别准确率最高、标点断句最自然，需 DashScope API Key 与联网；流程最后会提示用户此可选方案
 
 ## Agent 适配说明
 
@@ -88,7 +88,7 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 **文档命名规范：**
 
 文档标题采用 `拍摄时间+人物简介` 格式：
-- **拍摄时间**：从视频所在文件夹名中提取，格式为 `YY-MMDD`（如 `26-0509`、`26-0611`）
+- **拍摄时间**：按以下 fallback 链提取（不强制依赖文件夹命名）：① 文件夹名含 `YY-MMDD` 模式（如 `清华26-0509` → `26-0509`）；② 文件名含 `YY-MMDD`；③ 文件创建/修改时间格式化为 `YY-MMDD`；④ 均失败时标记为 `未知日期`，仍保留人物简介
 - **人物简介**：≤10个中文字符，概括受访人核心特征（学校/专业/年级/家乡等关键信息）
 - 两者之间用空格连接
 
@@ -105,37 +105,38 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 2. 如有特色可替换：如"云南高考第七"、"休学创业中戏生"
 3. 严格控制在10个中文字符以内，简洁有力
 
-### Step 2.5: 询问转录方式 & 创建转录配置
+### Step 2.5: 确定转录方式（默认本地）& 创建转录配置
 
-**转录前必须询问用户选择哪种转录方式，并明确告知质量差异。**
+**默认使用本地转录（SenseVoice），无需询问用户。** 仅在以下情况才切换为云端或询问：
+- 用户主动要求"用云端 / 用 Qwen / 用 API 转录"，或提供了 DashScope API Key
+- 用户明确要求使用其他本地模型（如 paraformer / whisper）
 
-向用户提出以下问题（可直接展示或通过 Agent 的交互机制提问）：
+否则直接以本地模式（`mode: "local"`，默认 sensevoice）创建配置并继续，**不打断用户确认**。
 
----
-
-> 请选择转录方式：
->
-> **A. 云端转录（Qwen3-ASR-Flash）** — ✅ 推荐
-> - 中文识别准确率高，标点断句自然，专有名词识别好
-> - 需要 DashScope API Key（阿里云百炼，有免费额度）
-> - 网络环境要求：需要联网
->
-> **B. 本地转录（多模型可选）** — 离线可用
-> - 无需云端 API，离线可用
-> - **SenseVoice / Paraformer（推荐本地选项）**：阿里达摩院中文模型，从魔搭社区下载，中文质量接近云端，无需 HuggingFace
-> - **faster-whisper large-v3（备选）**：通用多语言模型，中文质量一般，需 HuggingFace
-> - 声纹分离使用 pyannote.audio（需 HuggingFace Token）；无 Token 时可跳过，改用 LLM 语义切分
-> - 仅建议在无网络环境或 API 不可用时使用
->
-> 请回复 A 或 B（选 B 时可指定模型：sensevoice / paraformer / whisper）：
+如需让用户选择（例如用户未明确、但你判断需要确认），可提出以下问题：
 
 ---
 
-**等待用户回复后，根据选择创建配置：**
+> 请选择转录方式（默认本地，可跳过直接开始）：
+>
+> **A. 本地转录（SenseVoice，默认）** — 离线可用，无需 API Key
+> - 阿里达摩院中文模型，从魔搭社区下载，中文质量优秀、接近云端
+> - 无需 HuggingFace、无需 API Key，开箱即用
+> - 可选模型：sensevoice（默认）/ paraformer / whisper
+>
+> **B. 云端转录（Qwen3-ASR-Flash，可选升级）** — 准确率最高
+> - 中文识别准确率最高、标点断句最自然
+> - 需要 DashScope API Key（阿里云百炼，有免费额度）与联网
+>
+> 回复 A（或留空）使用本地；回复 B 并附上 API Key 使用云端：
 
-- 用户选 A（云端）→ 创建 `mode: "cloud"` 配置，需确认 DashScope API Key
-- 用户选 B（本地）→ 创建 `mode: "local"` 配置，需确认模型选择（默认 sensevoice）和 HuggingFace Token（可选，用于声纹分离）
-- 如用户未明确选择，默认使用云端转录（A），并告知用户
+---
+
+**根据用户选择（或不选择）创建配置：**
+
+- 用户明确要求云端（B）→ 创建 `mode: "cloud"` 配置，需确认 DashScope API Key
+- 默认 / 用户选本地（A）→ 创建 `mode: "local"` 配置，模型默认 sensevoice；HuggingFace Token 可选（用于声纹分离，无则跳过）
+- **如用户未明确选择，默认使用本地转录（`mode: "local"`），不询问、不打断**
 
 根据用户选择，在工作目录创建 transcribe_config.json：
 
@@ -165,7 +166,8 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
   "frame_path": "人物静帧.jpg 或 null（音频输入时为 null）",
   "output_dir": "<输出目录>",
   "hf_token": "<HuggingFace Access Token，用于 pyannote.audio 声纹分离，可选>",
-  "model": "sensevoice"
+  "model": "sensevoice",
+  "max_speakers": 2  // 声纹分离说话人上限；群访等多人场景可设更大值（如 5）
   // segments 在 Step 2.6 根据切段决策后填入，此处暂不写
 }
 ```
@@ -291,7 +293,7 @@ ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 480 
 
 ### Step 3: 运行转录
 
-根据 Step 2.5 中用户选择的转录方式（配置中的 `mode` 字段）执行对应脚本。
+根据 Step 2.5 确定的转录方式（配置中的 `mode` 字段，默认 `local`）执行对应脚本。
 
 > `<skill_dir>` 指本技能文件所在目录。
 
@@ -365,15 +367,15 @@ pip install pyannote.audio
 
 **声纹分离说明：**
 - pyannote.audio 基于声纹特征区分说话人，输出 SPEAKER_00/01/... 标签
-- 采访场景通常 2 人（采访者+受访人），脚本默认 `min_speakers=2, max_speakers=2`
-- SPEAKER 标签需在 Step 3.5 中由 LLM 映射为"采访者"/"受访人"角色
+- 默认说话人范围 `min_speakers=1, max_speakers=2`；群访等多人场景可在 `transcribe_config.json` 设 `max_speakers`（如 5）放宽
+- SPEAKER 标签需在 Step 3.5 中由 LLM 映射为具体角色（采访者/受访人，或群访中的记者乙、旁白等）
 
 ### Step 3.5: LLM 智能说话人识别（必须执行！）
 
 **重要：** 无论云端还是本地转录，都需要通过 LLM 完成说话人识别，但任务不同：
 
-- **云端模式**：Qwen3-ASR-Flash 输出为连续文本（无说话人信息），LLM 需做完整的语义分析切分
-- **本地模式**：pyannote.audio 已基于声纹区分出 SPEAKER_00/SPEAKER_01，LLM 只需将标签映射为"采访者"/"受访人"角色（任务更简单，准确率更高）
+- **云端模式**：Qwen3-ASR-Flash 输出为连续文本（无说话人信息），LLM 需做完整的语义分析切分，并识别所有出现的说话人（通常采访者+受访人，也可能有其他人）
+- **本地模式**：pyannote.audio 已基于声纹区分出多个说话人（SPEAKER_00/SPEAKER_01/…），LLM 将标签映射为对应的角色名（采访者/受访人，或其他如记者乙、旁白等）
 
 > **注意：** 本地转录（faster-whisper）的文本质量较差，可能影响 LLM 角色映射判断。如发现识别效果不佳，建议切换到云端转录方案。
 
@@ -384,11 +386,11 @@ pip install pyannote.audio
 如果 Agent 本身即是 LLM（如 Claude Code、Codex、WorkBuddy 等），直接阅读转录文本并按以下 prompt 输出结果：
 
 ```
-You are a professional transcript editor. Below is a raw transcription of an interview video. The text contains dialogue from two speakers: the interviewer (采访者) and the interviewee (受访人), but they are mixed together in one continuous block. Each line starts with a timestamp like [MM:SS] indicating its position in the video.
+You are a professional transcript editor. Below is a raw transcription of an interview. The text contains dialogue from the interview participants — typically an interviewer (采访者) and an interviewee (受访人), but there may be more (e.g. other reporters in a group interview, a narrator, etc.). All speakers are mixed together in one continuous block. Each line starts with a timestamp like [MM:SS] indicating its position in the audio/video.
 
 Your task:
 1. Split the text into individual dialogue turns (each question and each answer should be separate).
-2. Label each turn with **采访者** or **受访人**, followed by the timestamp of its first line.
+2. Label each turn with the appropriate speaker role: **采访者** for interviewer, **受访人** for interviewee, and clear consistent labels for any other speakers (e.g. **记者乙**, **旁白**). Follow with the timestamp of its first line.
 3. Each turn should be on its own line(s), separated by a blank line.
 4. Do NOT merge multiple questions into one block or multiple answers into one block.
 5. Keep the original wording exactly as-is, do not paraphrase.
@@ -421,11 +423,11 @@ Raw transcript:
 import dashscope
 dashscope.api_key = API_KEY
 
-prompt = """You are a professional transcript editor. Below is a raw transcription of an interview video. The text contains dialogue from two speakers: the interviewer (采访者) and the interviewee (受访人), but they are mixed together in one continuous block. Each line starts with a timestamp like [MM:SS] indicating its position in the video.
+prompt = """You are a professional transcript editor. Below is a raw transcription of an interview. The text contains dialogue from the interview participants — typically an interviewer (采访者) and an interviewee (受访人), but there may be more (e.g. other reporters in a group interview, a narrator, etc.). All speakers are mixed together in one continuous block. Each line starts with a timestamp like [MM:SS] indicating its position in the audio/video.
 
 Your task:
 1. Split the text into individual dialogue turns (each question and each answer should be separate).
-2. Label each turn with **采访者** or **受访人**, followed by the timestamp of its first line.
+2. Label each turn with the appropriate speaker role: **采访者** for interviewer, **受访人** for interviewee, and clear consistent labels for any other speakers (e.g. **记者乙**, **旁白**). Follow with the timestamp of its first line.
 3. Each turn should be on its own line(s), separated by a blank line.
 4. Do NOT merge multiple questions into one block or multiple answers into one block.
 5. Keep the original wording exactly as-is, do not paraphrase.
@@ -459,13 +461,14 @@ result = response.output.choices[0].message.content
 本地转录已包含 SPEAKER_00/SPEAKER_01 标签，LLM 只需判断哪个是采访者、哪个是受访人：
 
 ```
-以下是一段采访的转录文本，已通过声纹分离区分出两个说话人（SPEAKER_00 和 SPEAKER_01）。
+以下是一段采访的转录文本，已通过声纹分离区分出 N 个说话人（SPEAKER_00、SPEAKER_01 …）。
 每段对话开头有时间码 [MM:SS]，表示该段在视频中的位置。
 请根据对话内容判断哪个是采访者（提问方），哪个是受访人（回答方），然后将标签替换为"采访者"和"受访人"。
 
 判断规则：
 - 采访者：提问题，句子短，含引导性词汇
 - 受访人：回答问题，句子长，讲述个人经历和观点
+- 若出现更多说话人（如群访中的其他记者、旁白等），按其在对话中的实际角色命名（如"记者乙""旁白"），并保持命名一致
 
 严格要求：
 1. 严格保持原文内容不变，只替换说话人标签为"**采访者**"和"**受访人**"
@@ -591,6 +594,7 @@ summary_content = response.output.choices[0].message.content
 > 说话人识别：LLM 语义分析
 > 摘要与人物信息：LLM 生成
 > 转录日期：YYYY-MM-DD
+> 时间码精度：本地模式精确到秒；云端模式为段内估算值（4分钟粒度）
 
 💬 采访记录
 **采访者** [00:00]
@@ -655,6 +659,24 @@ pip install python-docx pillow
 
 > 注：python-docx 为必需；pillow 用于提升图片兼容性（处理扩展名与真实格式不符等情况），建议一并安装。
 
+### Step 3.9: 交付前预览与轻量确认（清理临时文件之前）
+
+`.docx` 生成后、**Step 5 清理临时文件之前**，必须先让用户快速确认内容准确性，尤其是说话人分得对不对。此时所有中间文件（`_transcript.json` / `_document.json` / 静帧等）仍在，便于纠错。
+
+**向用户展示的预览内容：**
+- 文档标题（如 `26-0509 车辆学院直博生`）
+- 说话人识别结果概览：列出所有识别出的说话人角色及其大致轮次/字数（例如：`采访者 ~18 轮`、`受访人 ~15 轮`；若识别出多于两人则说明）
+- 内容摘要要点（2-3 句）
+- 提示文档已生成在 `output_dir`
+
+**确认话术（自然、不机械）：**
+> 文档整理好了，先给你确认一下：标题是《XX》，识别出采访者和受访人两方（若多说话人则列出），摘要大致是……。说话人分得对吗？有要改的地方告诉我，没问题我就定稿了。
+
+**处理规则：**
+- 用户确认无误 → 继续 Step 4 / Step 5 / Step 6
+- 用户指出问题 → 回到对应步骤修正（说话人颠倒/错分 → 回 Step 3.5 重映射；标题错 → 改 Step 2；摘要偏差 → 回 Step 3.6），修正后重新生成 `.docx` 并再次确认
+- **此环节为轻量收尾确认，不打断主流程自动执行**；若用户明确说"直接定稿不用确认"，可跳过
+
 ### Step 4: 输出与分发
 
 根据需求选择输出方式。**本地 Word 文档（.docx）始终生成**（Step 3.8 已完成转换），以下为可选的分发目标：
@@ -718,7 +740,9 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments
 
 **询问话术（口吻自然，不要机械生硬）：**
 
-> 文档已经整理好了，需要我给您发到哪里？我可以总结好之后给您发送。
+> 文档已经整理好了，需要我给您发在哪里？我可以总结好之后给您发送。
+>
+> （提示：本次使用本地转录。若需要更高的识别准确率，可改用云端 Qwen3-ASR-Flash 转录——需配置 DashScope API Key，随时告诉我即可切换。）
 
 **可选交付目标（分发方式详见 Step 4）：**
 - **钉钉文档** — 通过 `dws` CLI 创建并上传（Step 4A）
@@ -736,9 +760,30 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments
 **方法演进：**
 1. ❌ 启发式方法（关键词+段落长度）：已废弃，完全不可靠，所有对话混在一个段落
 2. ✅ **云端模式：LLM 语义分析**：Qwen3-ASR-Flash 转录输出连续文本，LLM 理解对话内容智能切分，准确率 95%+
-3. ✅ **本地模式：pyannote.audio 声纹分离 + LLM 角色映射**：pyannote 基于声纹区分说话人，LLM 将 SPEAKER 标签映射为采访者/受访人角色
+3. ✅ **本地模式：pyannote.audio 声纹分离 + LLM 角色映射**：pyannote 基于声纹区分说话人，LLM 将 SPEAKER 标签映射为对应的角色（采访者/受访人，或群访中的其他角色）
 
 Qwen3-ASR-Flash 不直接支持说话人分离，fun-asr 虽支持但需 OSS 文件上传（file:// 本地路径不可用）。云端最优方案：Qwen3-ASR-Flash 转录 + LLM 语义分段。本地备选方案：faster-whisper 转录 + pyannote.audio 声纹分离 + LLM 角色映射。
+
+## 错误处理与失败恢复
+
+全流程任一环节失败都不应让用户束手无策。各环节的失败信号与回退动作如下；回退后仍失败则明确告知用户原因与可行路径，不要静默中断。
+
+- **Step 1 预处理（ffmpeg）失败**：文件损坏 / 格式不支持 / 无 ffmpeg。→ 提示用户检查源文件，列出 `ffmpeg -version` 验证；无法处理则终止该文件并说明，不要反复重试
+- **Step 2.6 获取时长（ffprobe）失败**：→ 无法判断时长时保守按"长音频"处理（自动切段），并在日志标注"时长未知，已按切段处理"
+- **Step 3 本地模型下载/加载失败**：
+  - SenseVoice/Paraformer（魔搭社区）失败 → 提示网络/磁盘，给出 `pip install funasr modelscope` + `snapshot_download` 手动命令；可建议改用 Paraformer 或云端
+  - faster-whisper / pyannote（HuggingFace）失败 → 脚本已内置镜像站降级；全失败则打印手动下载指南，并提示"可改用 SenseVoice（魔搭直连）或云端 Qwen3-ASR-Flash"
+  - 依赖缺失（funasr/faster-whisper/pyannote 未装）→ 直接打印对应 `pip install` 命令后退出
+- **Step 3 云端 API 失败/超时/配额耗尽**：
+  - 偶发超时 → 自动重试（最多 2 次，指数退避）
+  - 持续失败（Key 无效 / 配额用尽 / 无网络）→ 若本地模型可用则**自动降级本地转录**并告知用户；否则明确报错并给出申请/配置 DashScope Key 的指引
+- **Step 3.5 LLM 说话人识别异常**：
+  - 仅识别出 1 个说话人标签、或轮次数远少于音频时长预期 → 告警"说话人切分可能异常"，建议回看原始文本或改用其他识别方式（本地有 Token 时优先 pyannote 声纹分离）
+  - 角色映射明显颠倒（如把长回答标成采访者）→ 在 Step 3.9 预览环节由用户发现并纠正
+- **Step 3.8 生成 .docx 依赖缺失**：python-docx 未装 → 打印 `pip install python-docx pillow` 后退出，不破坏已生成的 `_document.json`（用户可稍后重跑生成）
+- **Step 4 上传平台失败**（如钉钉 API 报错）→ 保留本地 `.docx`，告知用户上传失败原因，提供本地文件路径作为兜底
+
+> 核心原则：**失败要可见、可恢复、有兜底**。任何环节出错都要给用户一个明确的"下一步"，而不是卡死或静默产出残缺文档。
 
 ## 注意事项
 
@@ -748,10 +793,10 @@ Qwen3-ASR-Flash 不直接支持说话人分离，fun-asr 虽支持但需 OSS 文
 - **摘要与人物信息必须生成**：说话人识别完成后必须执行 Step 3.6，生成内容摘要和受访人人物信息，插入到文档正文最前面（静帧之后、元数据之前），让读者快速了解采访核心内容和受访人背景
 - **LLM 调用方式**：如 Agent 自身即是 LLM（Claude Code、Codex 等），可直接在对话中执行 Step 3.5/3.6 的语义分析，无需额外 API 调用；否则使用 Python 调用 Qwen-Plus API
 - **转录 API**：使用 `dashscope.MultiModalConversation.call(model="qwen3-asr-flash")`，不要用 `Transcription.call`（后者签名已变更）
-- **转录方式选择**：转录前必须执行 Step 2.5 询问用户选择转录方式，并明确告知本地转录质量差异。优先推荐云端 Qwen3-ASR-Flash（准确率高），本地默认使用 SenseVoice（中文质量接近云端，从魔搭社区下载），faster-whisper 仅作为通用备选
+- **转录方式选择（默认本地）**：默认使用本地转录（SenseVoice，离线可用、无需 API Key），不强制询问用户。仅当用户主动要求更高准确率或提供 DashScope API Key 时才切换云端 Qwen3-ASR-Flash。faster-whisper 仅作为本地通用备选。流程最后（Step 6）会提示用户"云端转录为更高精度可选方案"
 - **输入类型自动识别**：本技能同时支持视频与音频输入。视频才需要「提取静帧 + 转 MP3」；音频直接跳过 MP3 转换（本身即为音频）且不提取静帧，元数据中 `input_type` 标记 video/audio、`frame_path` 为 null 时不输出静帧图
 - **切段决策在选方式之后**：是否切段取决于 Step 2.5 选定的转录方式——云端 Qwen3-ASR-Flash 单次上限 5 分钟（超时必须切），本地模型无硬限制（长音频由模型自动切、短音频整段，均不询问用户）。切段统一在 Step 2.6 完成，未切段时 segments 仅含整段一项（offset 为 0）
-- **本地声纹分离**：使用 pyannote.audio（`pyannote/speaker-diarization-3.1`），需 HuggingFace Token + 接受模型条款，采访场景固定 2 人。无 Token 时可跳过声纹分离，转录后使用 LLM 语义切分说话人（同云端模式）
+- **本地声纹分离（支持多说话人）**：使用 pyannote.audio（`pyannote/speaker-diarization-3.1`），需 HuggingFace Token + 接受模型条款。默认说话人范围 1-2 人，群访等多人场景可在 `transcribe_config.json` 设 `max_speakers`（如 5）放宽。无 Token 时可跳过声纹分离，转录后使用 LLM 语义切分说话人（同云端模式，支持 N 人）
 - **HuggingFace 模型下载镜像**：仅 faster-whisper 和 pyannote.audio 需要 HuggingFace。SenseVoice/Paraformer 从魔搭社区下载（国内直连）。faster-whisper 脚本内置多镜像站自动降级（hf-mirror.com → HuggingFace 官方），全部失败后打印手动下载指南。pyannote.audio 需 HuggingFace Token
 - Windows 路径使用正斜杠 / ，避免中文路径传给 API
 - **Windows 下 `bc` 不可用**：数值计算用 Python 替代，不要在 bash 中用 `bc` 做浮点比较

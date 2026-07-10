@@ -267,10 +267,10 @@ def load_diarization_pipeline(hf_token: str):
         sys.exit(1)
 
 
-def diarize_segment(diarization_pipeline, audio_path: str) -> list:
-    """用 pyannote.audio 对单个音频段做声纹分离"""
-    print(f"  声纹分离中: {audio_path}")
-    diarization = diarization_pipeline(audio_path, min_speakers=2, max_speakers=2)
+def diarize_segment(diarization_pipeline, audio_path: str, min_speakers: int = 1, max_speakers: int = 2) -> list:
+    """用 pyannote.audio 对单个音频段做声纹分离（支持多说话人）"""
+    print(f"  声纹分离中: {audio_path}（说话人范围 {min_speakers}-{max_speakers}）")
+    diarization = diarization_pipeline(audio_path, min_speakers=min_speakers, max_speakers=max_speakers)
 
     turns = []
     for turn, _, speaker in diarization.itertracks(yield_label=True):
@@ -461,7 +461,9 @@ def main():
 
         # b. 声纹分离 + 对齐
         if diarization_pipeline:
-            diarization_turns = diarize_segment(diarization_pipeline, seg_file)
+            min_sp = config.get("min_speakers", 1)
+            max_sp = config.get("max_speakers", 2)
+            diarization_turns = diarize_segment(diarization_pipeline, seg_file, min_sp, max_sp)
             aligned = align_speakers(asr_segments, diarization_turns)
         else:
             # 无声纹分离，全部标记为 SPEAKER_00
