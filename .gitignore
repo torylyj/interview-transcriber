@@ -2,8 +2,12 @@
 _seg*.mp3
 _upload.md
 *_raw.txt
+*_transcript.json
+*_document.json
 *segments.json
 transcribe_config.json
+输出.mp3
+人物静帧.jpg
 __pycache__/
 *.pyc
 

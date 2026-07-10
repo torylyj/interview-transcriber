@@ -15,6 +15,7 @@ import os
 import sys
 import json
 import argparse
+from datetime import datetime
 
 # ─── HuggingFace 镜像站（pyannote.audio 用） ───────────────────
 HF_MIRRORS = [
@@ -355,62 +356,22 @@ def generate_raw_text(merged: list) -> str:
     return "\n".join(lines)
 
 
-def generate_markdown(merged: list, title: str, source_file: str, model_name: str, frame_path=None) -> str:
-    """生成带时间码和 SPEAKER 标签的 Markdown 文档
+def generate_transcript_json(merged: list, title: str, source_file: str, model_name: str, frame_path, input_type: str) -> dict:
+    """生成结构化转录数据（不生成 Markdown，供后续 LLM 处理与直接构建 .docx 使用）
 
     frame_path 为 None 时（音频输入）不输出静帧图。
+    raw_text 为带时间码和 SPEAKER 标签的原始转录文本，供 Step 3.5 LLM 角色映射使用。
     """
-    lines = [f"# {title}", ""]
-
-    if frame_path:
-        lines += [
-            '<div align="center">',
-            f'<img src="{frame_path}" width="280" />',
-            "</div>",
-            "",
-        ]
-
-    lines += [
-        "---",
-        "",
-        "> \U0001F4CB 文档信息",
-        ">",
-        f"> 源文件：{source_file}",
-        f"> 转录模型：{model_name}",
-        "> 说话人识别：pyannote.audio 声纹分离（SPEAKER 标签，待 LLM 角色映射）",
-        "> 时间码：精确到秒",
-        "",
-        "---",
-        "",
-        "## \U0001F4AC 采访记录",
-        "",
-    ]
-
-    current_speaker = None
-    current_texts = []
-    current_start = 0.0
-
-    for item in merged:
-        speaker = item["speaker"]
-        if speaker != current_speaker:
-            if current_speaker is not None and current_texts:
-                ts = format_timestamp(current_start)
-                lines.append(f"**{current_speaker}** {ts}")
-                lines.append("".join(current_texts))
-                lines.append("")
-            current_speaker = speaker
-            current_texts = [item["text"]]
-            current_start = item["start"]
-        else:
-            current_texts.append(item["text"])
-
-    if current_speaker is not None and current_texts:
-        ts = format_timestamp(current_start)
-        lines.append(f"**{current_speaker}** {ts}")
-        lines.append("".join(current_texts))
-        lines.append("")
-
-    return "\n".join(lines)
+    return {
+        "title": title,
+        "source_file": source_file,
+        "frame_path": frame_path,
+        "input_type": input_type,
+        "transcription_tool": model_name,
+        "model": "local",
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "raw_text": generate_raw_text(merged),
+    }
 
 
 # ─── 主流程 ────────────────────────────────────────────────────
@@ -525,12 +486,19 @@ def main():
         f.write(raw_text)
     print(f"原始文本（带时间码）保存: {raw_path}")
 
-    # 生成 Markdown
-    md_content = generate_markdown(merged, doc_title, source_file, model_cfg["name"], frame_path)
-    md_path = os.path.join(output_dir, f"{doc_title}.md")
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
-    print(f"\n✅ 中间 Markdown 保存（将转为 .docx）: {md_path}")
+    # 生成结构化转录数据（JSON，无 Markdown；供 Step 3.5 处理与 build_docx 直接生成 .docx）
+    data = generate_transcript_json(
+        merged,
+        doc_title,
+        source_file,
+        model_cfg["name"],
+        frame_path,
+        config.get("input_type", "video"),
+    )
+    json_path = os.path.join(output_dir, f"{doc_title}_transcript.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print(f"\n✅ 结构化转录数据保存（无 Markdown，将直接转为 .docx）: {json_path}")
 
     # 统计
     speaker_counts = {}
@@ -543,7 +511,7 @@ def main():
         print("⚠️ 未做声纹分离，请在 Step 3.5 中使用 LLM 语义切分说话人（同云端模式）")
     else:
         print("请继续执行 Step 3.5 LLM 角色映射（保留时间码）。")
-    return md_path
+    return json_path
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 ---
 name: interview-transcriber
 description: |
-  采访转录全流程处理技能（支持视频与音频输入）。覆盖：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 询问用户选择转录方式（云端/本地，告知质量差异）-> 选完方式后由模型按能力自动决定是否切段 -> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（SenseVoice/Paraformer 魔搭社区中文模型，推荐 / faster-whisper large-v3 通用备选，可选 pyannote.audio 声纹分离）-> LLM 智能说话人识别（区分采访者/受访人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 生成带时间码的 Word 文档（.docx，由中间 Markdown 转换，视频输入时嵌入静帧）-> 自检并适度精简口语语气词 -> 可选输出到在线文档平台/本地文件等。
+  采访转录全流程处理技能（支持视频与音频输入）。覆盖：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 询问用户选择转录方式（云端/本地，告知质量差异）-> 选完方式后由模型按能力自动决定是否切段 -> 云端转录（Qwen3-ASR-Flash，推荐）或本地转录（SenseVoice/Paraformer 魔搭社区中文模型，推荐 / faster-whisper large-v3 通用备选，可选 pyannote.audio 声纹分离）-> LLM 智能说话人识别（区分采访者/受访人，保留时间码） -> LLM 生成内容摘要与受访人人物信息（置于文档正文最前面） -> 直接生成带时间码的 Word 文档（.docx，全程无 Markdown 中间文件，视频输入时嵌入静帧）-> 自检并适度精简口语语气词 -> 可选输出到在线文档平台/本地文件等。
   适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后，会主动询问用户希望将整理好的文档发送到哪里。
 agent_created: true
 ---
@@ -10,7 +10,7 @@ agent_created: true
 
 ## 概述
 
-将采访内容（视频或音频）全流程处理为带说话人识别的转录文档：输入预处理（音频跳过转 MP3、无静帧）-> 选转录方式 -> 模型按能力自动决定是否切段 -> 转录（云端/本地可选）-> 说话人识别 -> 生成摘要与人物信息 -> 生成 Word 文档（.docx）-> 自检精简语气词 -> 可选分发到在线文档平台。全部处理完成后主动询问用户要将文档发送到哪里。
+将采访内容（视频或音频）全流程处理为带说话人识别的转录文档：输入预处理（音频跳过转 MP3、无静帧）-> 选转录方式 -> 模型按能力自动决定是否切段 -> 转录（云端/本地可选）-> 说话人识别 -> 生成摘要与人物信息 -> 直接生成 Word 文档（.docx，全程无 Markdown 中间文件）-> 自检精简语气词 -> 可选分发到在线文档平台。全部处理完成后主动询问用户要将文档发送到哪里。
 
 **核心流程（Step 1-3.6）** 与输出目标无关，始终执行。**输出分发（Step 4）** 根据用户需求选择目标平台。
 
@@ -306,7 +306,7 @@ python <skill_dir>/scripts/transcribe_qwen.py --config transcribe_config.json
 脚本执行：
 1. 逐段调用 Qwen3-ASR-Flash API 转录（使用 `dashscope.MultiModalConversation.call(model="qwen3-asr-flash")`）
 2. 合并所有段的文本为带时间码的原始转录文本（每段以 `[MM:SS]` 开头，基于段偏移）
-3. 生成 <标题>.md（中间文件：带时间码，先不区分说话人，第一行嵌入静帧引用；最终在 Step 3.8 转为 .docx）
+3. 生成 `<标题>_transcript.json`（结构化中间数据，含 metadata + `raw_text` 原始转录文本，**不生成 Markdown**；`raw_text` 供 Step 3.5 LLM 使用，最终在 Step 3.8 由 `build_docx.py` 直接转为 .docx）
 
 **优势：** 中文识别准确率高，标点/断句自然，专有名词识别好。
 
@@ -351,7 +351,7 @@ pip install pyannote.audio
    - **b. 声纹分离**（如有 Token）：pyannote.audio 识别说话人轮次
    - **c. 时间戳对齐**：将文本片段与说话人标签对齐
 4. 合并所有段，输出带时间码和 `**SPEAKER_00**` / `**SPEAKER_01**` 标签的文本（时间码精确到秒）
-5. 生成 <标题>.md（中间文件：带时间码 + SPEAKER 标签，第一行嵌入静帧引用；最终在 Step 3.8 转为 .docx）
+5. 生成 `<标题>_transcript.json`（结构化中间数据，含 metadata + 带 SPEAKER 标签的 `raw_text`；**不生成 Markdown**，最终在 Step 3.8 由 `build_docx.py` 直接转为 .docx）
 
 **本地模型对比：**
 | 模型 | 来源 | 大小 | 中文质量 | 下载方式 | 推荐 |
@@ -476,7 +476,7 @@ result = response.output.choices[0].message.content
 {raw_text}
 ```
 
-然后将 LLM 输出替换 MD 文件中的原始对话文本，并更新"说话人识别"元数据：
+然后将 LLM 输出整理为结构化数据，写入 `<标题>_document.json`（字段定义见 Step 3.6）。说话人识别方式记录为：
 - 云端模式：`LLM 语义分析`
 - 本地模式：`pyannote.audio 声纹分离 + LLM 角色映射`
 
@@ -535,39 +535,56 @@ response = dashscope.Generation.call(
 summary_content = response.output.choices[0].message.content
 ```
 
-**插入文档：** 将 LLM 输出的摘要和人物信息插入到 `<标题>.md` 文件中，位置在静帧之后、元数据之前。最终文档结构为：
+**写入结构化文档数据（`_document.json`）：** Step 3.5/3.6/3.7 全部完成后，Agent 将最终结果整理为 `<标题>_document.json`，由 Step 3.8 的 `build_docx.py` 直接生成 .docx。**全程不生成 Markdown 文件。**
 
-```markdown
+该 JSON 的字段定义（Agent 应基于 `<标题>_transcript.json` 的 metadata 字段 + 自身 LLM 输出组合而成）：
+
+```json
+{
+  "title": "<拍摄时间+人物简介，如 26-0509 车辆学院直博生>",
+  "frame_path": "人物静帧.jpg 或 null（音频输入时为 null）",
+  "input_type": "video 或 audio",
+  "source_file": "<原始输入文件名，如 输入.mp4 / 输入.m4a>",
+  "transcription_tool": "通义千问 Qwen3-ASR-Flash（阿里云百炼）或 SenseVoice/Paraformer 模型名",
+  "speaker_method": "LLM 语义分析 或 pyannote.audio 声纹分离 + LLM 角色映射",
+  "summary_method": "LLM 生成",
+  "date": "YYYY-MM-DD",
+  "summary": "<LLM 生成的 3-5 句话摘要，多段落用 \\n 分隔>",
+  "person_info": [
+    {"field": "学校/单位", "value": "..."},
+    {"field": "专业/学院", "value": "..."},
+    {"field": "年级/身份", "value": "..."},
+    {"field": "家乡", "value": "..."},
+    {"field": "关键经历", "value": "..."},
+    {"field": "核心观点", "value": "..."}
+  ],
+  "conversation": [
+    {"speaker": "采访者", "timestamp": "[00:00]", "text": "<对话内容>"},
+    {"speaker": "受访人", "timestamp": "[00:15]", "text": "<对话内容>"},
+    {"speaker": "采访者", "timestamp": "[01:30]", "text": "<对话内容>"}
+  ]
+}
+```
+
+> `frame_path` 为 `null`（音频输入）时，`build_docx.py` 自动跳过静帧插入；`person_info` / `summary` 缺失时对应章节自动省略。
+
+**最终 .docx 文档结构（build_docx.py 渲染结果）：**
+
+```
 # <标题>
 
-<!-- 视频输入时插入静帧，音频输入时无此行 -->
-<div align="center">
-<img src="人物静帧.jpg" width="280" />
-</div>
+<居中人物静帧，仅视频输入；音频输入时无此图>
 
----
+📝 内容摘要
+<LLM 生成的 3-5 句话概括>
 
-## 📝 内容摘要
-
-<LLM 生成的摘要内容>
-
----
-
-## 👤 受访人信息
-
+👤 受访人信息
 | 字段 | 内容 |
 |------|------|
-| 学校/单位 | |
-| 专业/学院 | |
-| 年级/身份 | |
-| 家乡 | |
-| 关键经历 | |
-| 核心观点 | |
+| 学校/单位 | ... |
+| ...  | ... |
 
----
-
-> 📋 文档信息
->
+📋 文档信息
 > 源文件：<source_file>
 > 输入类型：视频 / 音频
 > 转录工具：Qwen3-ASR-Flash / SenseVoice
@@ -575,20 +592,12 @@ summary_content = response.output.choices[0].message.content
 > 摘要与人物信息：LLM 生成
 > 转录日期：YYYY-MM-DD
 
----
-
-## 💬 采访记录
-
+💬 采访记录
 **采访者** [00:00]
 <对话内容>
 
 **受访人** [00:15]
 <对话内容>
-
-**采访者** [01:30]
-<对话内容>
-
-...
 ```
 
 **长文本处理：** 同 Step 3.5，超过 8000 字符时分段处理后合并摘要。
@@ -623,20 +632,20 @@ summary_content = response.output.choices[0].message.content
 
 **d. 执行方式**
 
-- Agent 自身即 LLM 时，直接读取 `<标题>.md` 的采访记录部分，按上述原则精简后写回原文件
+- Agent 自身即 LLM 时，直接读取 `<标题>_document.json` 中 `conversation` 的文本内容，按上述原则精简后更新 `conversation[].text` 并写回 `_document.json`
 - 精简完成后**简要告知用户**：「已通读并精简了口语语气词」，不需要逐条列出改动
 
-### Step 3.8: 转换为 Word 文档（.docx）
+### Step 3.8: 构建 Word 文档（.docx，直接生成，无中间 Markdown）
 
-所有文本处理（转录、说话人识别、摘要生成、语气词自检）完成后，将中间 Markdown 文件转换为 **Word 文档（.docx）**，作为最终交付格式：
+所有文本处理（转录、说话人识别、摘要生成、语气词自检）完成后，由 `build_docx.py` **直接读取 `<标题>_document.json` 生成 Word 文档（.docx）**，全程不经过 Markdown：
 
 ```
-python <skill_dir>/scripts/md_to_docx.py "<output_dir>/<标题>.md" "<output_dir>/<标题>.docx"
+python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "<output_dir>/<标题>.docx"
 ```
 
-- 转换器会保留：文档标题、居中人物静帧（仅视频输入）、内容摘要、人物信息表格、文档信息、采访记录（含说话人标签与时间码）
-- 音频输入（无静帧）时自动跳过图片插入
-- 转换完成后，中间 `<标题>.md` 在 Step 5 清理时删除，**仅保留 `<标题>.docx` 作为最终交付物**
+- `build_docx.py` 直接渲染：文档标题、居中人物静帧（仅视频输入、`frame_path` 非 null 时）、内容摘要、人物信息表格、文档信息引用块、采访记录（加粗说话人标签 + 时间码）
+- 音频输入（`frame_path` 为 null）时自动跳过图片插入
+- 生成后 `<标题>.docx` 即为最终交付物，**全程不生成任何 Markdown 文件**
 
 **依赖安装：**
 
@@ -656,11 +665,11 @@ pip install python-docx pillow
 
 **钉钉文档示例：**
 
-如用户环境已配置钉钉 CLI（如 `dws`），可使用以下命令上传：
+如用户环境已配置钉钉 CLI（如 `dws`），先用 `build_docx.py --export-md` 从 `_document.json` 生成一份临时 Markdown（上传后即删，非工作中间文件），再上传：
 
 ```bash
-# 先移除 MD 中的人物静帧引用行（本地图片无法上传）
-# 用 Python 读取 MD，删除静帧引用行，写入 _upload.md
+# 从结构化数据导出临时 Markdown（本地图片静帧无法上传，导出时已省略引用行）
+python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "<output_dir>/<标题>.docx" --export-md "<output_dir>/_upload.md"
 
 dws doc create --name "<拍摄时间+人物简介>" --content-file "_upload.md" --content-format markdown
 ```
@@ -691,17 +700,17 @@ dws doc media insert --node "<node_id>" --file "人物静帧.jpg" --index 0 -y
 
 #### 4C. 其他平台（按需扩展）
 
-核心交付物为 Step 3.8 生成的 Word 文档 `<标题>.docx`（含摘要、人物信息、对话正文）。用户可根据需要上传到任意平台：多数平台支持直接上传 .docx 文件；若平台仅接受 Markdown（如钉钉 doc create 的 markdown 模式），可在 Step 5 清理前使用中间 `<标题>.md` 上传。
+核心交付物为 Step 3.8 生成的 Word 文档 `<标题>.docx`（含摘要、人物信息、对话正文）。用户可根据需要上传到任意平台：多数平台支持直接上传 .docx 文件；若平台仅接受 Markdown（如钉钉 doc create 的 markdown 模式），可在 Step 5 清理前用 `build_docx.py --export-md` 从 `_document.json` 生成临时 `_upload.md` 上传。
 
 ### Step 5: 清理临时文件
 
 ```bash
-rm -f _seg*.mp3 _upload.md *_raw.txt *segments.json transcribe_config.json 输出.mp3 <标题>.md
+rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments.json transcribe_config.json 输出.mp3
 ```
 
 保留的文件：
-- `<标题>.docx`（最终转录文档，Word 格式）
-- `人物静帧.jpg`（人物静帧图片）
+- `<标题>.docx`（最终转录文档，Word 格式，直接生成、无中间 Markdown）
+- `人物静帧.jpg`（人物静帧图片，仅视频输入）
 
 ### Step 6: 询问交付位置（收尾交互）
 
@@ -750,4 +759,4 @@ Qwen3-ASR-Flash 不直接支持说话人分离，fun-asr 虽支持但需 OSS 文
 - **长文本 LLM 分段**：LLM 单次输入建议不超过 8000 字符，超过时分段处理后拼接
 - **生成后自检精简语气词**：文档生成后必须执行 Step 3.7，通读采访记录、适度删除口语语气词/填充词（嗯、啊、那个、就是、然后堆叠等）。原则是「稍微减少一点」——只删明显冗余的，绝不改写句子结构、不替换用词、不改变原意，仅处理正文（不动摘要/人物信息/时间码/说话人标签）
 - **收尾必须主动询问交付位置**：所有处理（含临时文件清理）完成后，必须主动问用户"需要我给您发在哪里？"（Step 6），未经确认不得擅自上传到任何外部平台。用户未指定时保持本地文件待命即可
-- **最终交付为 Word 文档（.docx）**：文本处理阶段的中间文件为 Markdown，在 Step 3.8 通过 `scripts/md_to_docx.py` 转换为 .docx（依赖 python-docx，建议装 pillow 提升图片兼容）；Step 5 清理时删除中间 .md，仅保留 .docx 交付，不再产出 .md 文件
+- **最终交付为 Word 文档（.docx），全程无 Markdown 中间文件**：转录脚本直接输出结构化 `<标题>_transcript.json`（含 metadata + `raw_text`），Agent 完成说话人识别 / 摘要生成 / 语气词自检后写入 `<标题>_document.json`，最后由 `scripts/build_docx.py` 直接生成 .docx（依赖 python-docx，建议装 pillow 提升图片兼容）；Step 5 清理时删除所有临时 JSON，仅保留 .docx 交付，全程不生成任何 .md 文件

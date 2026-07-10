@@ -13,6 +13,7 @@ import os
 import sys
 import json
 import argparse
+from datetime import datetime
 import dashscope
 
 # 中文口语语速估算：每个字约 0.15 秒
@@ -80,46 +81,22 @@ def generate_raw_text(all_text_parts: list) -> str:
     return "\n".join(lines)
 
 
-def generate_markdown(all_text_parts: list, title: str, source_file: str, frame_path=None) -> str:
-    """生成带时间码的 Markdown 文档（不含说话人标签，待 LLM 处理）
+def generate_transcript_json(all_text_parts: list, title: str, source_file: str, frame_path, input_type: str) -> dict:
+    """生成结构化转录数据（不生成 Markdown，供后续 LLM 处理与直接构建 .docx 使用）
 
     frame_path 为 None 时（音频输入）不输出静帧图。
+    raw_text 为带时间码的原始转录文本，供 Step 3.5 LLM 说话人识别使用。
     """
-    lines = [f"# {title}", ""]
-
-    if frame_path:
-        lines += [
-            '<div align="center">',
-            f'<img src="{frame_path}" width="280" />',
-            "</div>",
-            "",
-        ]
-
-    lines += [
-        "---",
-        "",
-        "> \U0001F4CB 文档信息",
-        ">",
-        f"> 源文件：{source_file}",
-        "> 转录模型：通义千问 Qwen3-ASR-Flash（阿里云百炼）",
-        "> 时间码：段级精度（4分钟粒度），段内为估算值",
-        "",
-        "---",
-        "",
-        "## \U0001F4AC 采访记录",
-        "",
-        "> 待 LLM 说话人识别（Step 3.5）处理后替换为带说话人标签的对话",
-        "",
-    ]
-
-    for part in all_text_parts:
-        offset = part["time_offset"]
-        text = part["text"]
-        ts = format_timestamp(offset)
-        lines.append(f"{ts} {text}")
-        lines.append("")
-
-    return "\n".join(lines)
+    return {
+        "title": title,
+        "source_file": source_file,
+        "frame_path": frame_path,
+        "input_type": input_type,
+        "transcription_tool": "通义千问 Qwen3-ASR-Flash（阿里云百炼）",
+        "model": "qwen3-asr-flash",
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "raw_text": generate_raw_text(all_text_parts),
+    }
 
 
 def main():
@@ -149,31 +126,21 @@ def main():
     total_chars = sum(len(p["text"]) for p in all_text_parts)
     print(f"\n合并后文本: {total_chars} 字符")
 
-    raw_path = os.path.join(output_dir, f"{doc_title}_raw.txt")
-    with open(raw_path, "w", encoding="utf-8") as f:
-        f.write(raw_text)
-    print(f"原始文本（带时间码）保存: {raw_path}")
-
-    # Step 3: 生成 Markdown（带时间码，不含说话人标签）
-    md_content = generate_markdown(all_text_parts, doc_title, source_file, frame_path)
-
-    md_path = os.path.join(output_dir, f"{doc_title}.md")
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
-    print(f"\n✅ 中间 Markdown 保存（将转为 .docx）: {md_path}")
-
-    # Step 4: 保存 JSON
-    json_data = {
-        "model": "qwen3-asr-flash",
-        "segments": all_text_parts,
-    }
-    json_path = os.path.join(output_dir, f"{doc_title}_segments.json")
+    # Step 3: 生成结构化转录数据（JSON，无 Markdown；供 Step 3.5 处理与 build_docx 直接生成 .docx）
+    data = generate_transcript_json(
+        all_text_parts,
+        doc_title,
+        source_file,
+        frame_path,
+        config.get("input_type", "video"),
+    )
+    json_path = os.path.join(output_dir, f"{doc_title}_transcript.json")
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(json_data, f, ensure_ascii=False, indent=2)
-    print(f"JSON 保存: {json_path}")
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print(f"\n✅ 结构化转录数据保存（无 Markdown，将直接转为 .docx）: {json_path}")
 
-    print("\n🎉 转录完成！请继续执行 Step 3.5 LLM 说话人识别（保留时间码）。")
-    return md_path
+    print("\n🎉 转录完成！请继续执行 Step 3.5 LLM 说话人识别（读取 raw_text，保留时间码）。")
+    return json_path
 
 
 if __name__ == "__main__":

@@ -77,7 +77,7 @@ pip install faster-whisper   # 模型下载内置多镜像站自动降级
 # 声纹分离（可选，无 Token 时跳过，改用 LLM 语义切分）
 pip install pyannote.audio
 
-# Word 文档输出（.docx 转换，必需）
+# Word 文档输出（.docx 直接生成，必需）
 pip install python-docx pillow
 ```
 
@@ -171,7 +171,7 @@ flowchart TD
     NSEG --> S35
     S35[Step 3.5 · 说话人识别] --> S36[Step 3.6 · 摘要 + 人物信息]
     S36 -->     S37[Step 3.7 · 自检精简语气词]
-    S37 --> S38[Step 3.8 · 转换为 Word .docx]
+    S37 --> S38[Step 3.8 · 构建 Word .docx]
     S38 --> S4[Step 4 · 输出与分发]
     S4 --> S6[Step 6 · 询问交付位置]
 
@@ -190,7 +190,7 @@ flowchart TD
 
 ## 📄 输出文档结构
 
-> 以下为文档内容结构；最终以 **Word 文档（.docx）** 形式交付（中间 Markdown 经 `scripts/md_to_docx.py` 转换，保留全部排版与静帧）。
+> 以下为文档内容结构；最终以 **Word 文档（.docx）** 形式交付，由 `scripts/build_docx.py` 直接读取结构化 JSON 生成，**全程无 Markdown 中间文件**。
 
 ```markdown
 # <标题>
@@ -294,6 +294,7 @@ flowchart TD
 
 | 日期 | 内容 |
 |------|------|
+| 2026-07-10 | **移除 Markdown 中间文件**：转录脚本直接输出结构化 `_transcript.json`，Agent 完成说话人识别/摘要/自检后写入 `_document.json`，由 `scripts/build_docx.py` 直接生成 .docx；删除 `md_to_docx.py`，全程不再生成任何 .md |
 | 2026-07-10 | 最终交付改为 **Word 文档（.docx）**：转录与 LLM 处理后的中间 Markdown 经 `scripts/md_to_docx.py` 转换为 .docx，Step 5 清理时删除中间 .md；新增 Step 3.8 |
 | 2026-07-10 | 新增 Step 3.7：文档生成后自检、适度精简口语语气词（不改原意、仅删明显冗余） |
 | 2026-07-10 | 切段决策改为模型按能力自动处理，不再询问用户 |
