@@ -32,13 +32,14 @@ def transcribe_segments(segments: list, api_key: str) -> list:
     """对每个分段调用 Qwen3-ASR-Flash 进行转录，返回带时间偏移的结果"""
     dashscope.api_key = api_key
     results = []
+    total = len(segments)
 
     for i, seg in enumerate(segments):
         seg_file = seg["file"]
         time_offset = seg.get("offset", 0)
         file_url = "file://" + os.path.abspath(seg_file).replace("\\", "/")
 
-        print(f"[{i+1}/{len(segments)}] 转录: {os.path.basename(seg_file)} (偏移 {time_offset}s)")
+        print(f"[转录进度 {i+1}/{total}] 处理: {os.path.basename(seg_file)} (偏移 {time_offset}s)")
 
         try:
             response = dashscope.MultiModalConversation.call(
@@ -117,7 +118,7 @@ def main():
 
     # Step 1: 转录
     print(f"\n{'='*50}")
-    print("开始 Qwen3-ASR-Flash 转录（带时间码）...")
+    print(f"开始 Qwen3-ASR-Flash 转录（带时间码）... 共 {len(segments)} 段")
     print(f"{'='*50}\n")
     all_text_parts = transcribe_segments(segments, api_key)
 

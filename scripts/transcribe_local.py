@@ -88,6 +88,7 @@ def load_funasr_model(model_key: str):
 
     cfg = MODEL_CONFIGS[model_key]
     print(f"加载 {cfg['name']} 模型（约 {cfg['size']}，从 {cfg['source']} 自动下载）...")
+    print(f"  ⏳ 若本地尚未缓存，首次下载约需 {cfg['size']}，请稍候（下载进度由 modelscope 输出）")
 
     kwargs = {
         "model": cfg["funasr_model"],
@@ -183,6 +184,7 @@ def load_whisper_model(model_size: str = "large-v3"):
 
     sizes = {"tiny": "75MB", "base": "145MB", "small": "466MB", "medium": "1.5GB", "large-v3": "3GB"}
     print(f"加载 faster-whisper 模型: {model_size}（约 {sizes.get(model_size, '?')}，首次使用会自动下载）...")
+    print(f"  ⏳ 若本地尚未缓存，首次下载约需 {sizes.get(model_size, '?')}，请稍候")
     print(f"  当前下载源: {get_hf_endpoint()}")
 
     try:
