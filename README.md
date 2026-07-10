@@ -141,31 +141,31 @@ export HF_TOKEN="hf_your-token-here"
 
 ## 🔄 工作流程
 
+<div align="center">
+
 ```mermaid
 flowchart TD
-    V([🎬 视频文件<br/>MP4 / MOV / AVI]) --> S1
-    subgraph S1G[Step 1 · 视频预处理 · ffmpeg]
-        direction TB
-        S1[提取人物静帧<br/>第 5 秒 · 800px] --> S1b[转换 MP3<br/>16kHz 单声道]
-        S1b --> S1c[切分为 4 分钟段]
-    end
-    S1c --> S2[Step 2 · 确定文档标题<br/>拍摄时间 + 人物简介]
-    S2 --> S25{Step 2.5 · 选择转录方式}
-    S25 -->|A · 云端 推荐| S3A[Step 3A · 云端转录<br/>Qwen3-ASR-Flash]
-    S25 -->|B · 本地| S3B[Step 3B · 本地转录<br/>SenseVoice + pyannote 可选]
+    V([🎬 视频文件]) --> S1[Step 1 · 预处理<br/>静帧 + MP3 + 切段]
+    S1 --> S2[Step 2 · 确定标题]
+    S2 --> S25{Step 2.5<br/>选择转录方式}
+    S25 -->|A 云端| S3A[Step 3A · Qwen3-ASR-Flash]
+    S25 -->|B 本地| S3B[Step 3B · SenseVoice]
     S3A --> S35
     S3B --> S35
-    S35[Step 3.5 · LLM 说话人识别<br/>区分 采访者 / 受访人] --> S36[Step 3.6 · 生成摘要与人物信息<br/>插入文档最前面]
-    S36 --> S4[Step 4 · 输出与分发<br/>本地 Markdown / 钉钉 / 飞书 / Notion]
-    S4 --> S6[Step 6 · 询问交付位置<br/>需要我给您发在哪里？]
+    S35[Step 3.5 · 说话人识别] --> S36[Step 3.6 · 摘要 + 人物信息]
+    S36 --> S4[Step 4 · 输出与分发]
+    S4 --> S6[Step 6 · 询问交付位置]
 
     classDef cloud fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
     classDef local fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
     classDef main fill:#fff3e0,stroke:#ef6c00,color:#e65100;
     class S3A cloud;
     class S3B local;
-    class S25,S35,S36,S4,S6,S2,S1,S1b,S1c main;
+    class S1,S2,S25,S35,S36,S4,S6 main;
+    linkStyle default stroke-width:1px;
 ```
+
+</div>
 
 ---
 
