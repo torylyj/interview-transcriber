@@ -530,7 +530,7 @@ def main():
     md_path = os.path.join(output_dir, f"{doc_title}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_content)
-    print(f"\n✅ Markdown 文档保存: {md_path}")
+    print(f"\n✅ 中间 Markdown 保存（将转为 .docx）: {md_path}")
 
     # 统计
     speaker_counts = {}
