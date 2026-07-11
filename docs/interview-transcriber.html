@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Interview Transcriber · 技能说明</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f8fb;
+    --bg-card: #ffffff;
+    --bg-code: #0f172a;
+    --border: #e6eaf0;
+    --border-soft: #eef1f6;
+    --text: #0f172a;
+    --text-soft: #5b6577;
+    --text-faint: #8a93a3;
+    --primary: #6366f1;
+    --primary-strong: #4f46e5;
+    --primary-soft: #eef0fe;
+    --accent: #f59e0b;
+    --accent-soft: #fef5e6;
+    --cloud: #10b981;
+    --cloud-soft: #e7f8f1;
+    --radius: 14px;
+    --radius-sm: 9px;
+    --shadow-sm: 0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.04);
+    --shadow-md: 0 8px 24px rgba(15,23,42,.08);
+    --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    --mono: "SFMono-Regular", "Roboto Mono", "JetBrains Mono", Consolas, monospace;
+    --maxw: 920px;
+  }
+  [data-theme="dark"] {
+    --bg: #0b1220;
+    --bg-soft: #111c2e;
+    --bg-card: #131f33;
+    --bg-code: #060b15;
+    --border: #25324a;
+    --border-soft: #1c2840;
+    --text: #e7ecf5;
+    --text-soft: #9aa6bd;
+    --text-faint: #6b7790;
+    --primary: #818cf8;
+    --primary-strong: #a5b0ff;
+    --primary-soft: #1b2342;
+    --accent: #f6b73c;
+    --accent-soft: #2c2410;
+    --cloud: #34d399;
+    --cloud-soft: #0f2b22;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+    --shadow-md: 0 10px 30px rgba(0,0,0,.45);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    background: var(--bg-soft);
+    color: var(--text);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--primary-strong); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Top bar ── */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 22px;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .logo { font-size: 20px; }
+  .topbar .name { font-weight: 700; letter-spacing: .2px; }
+  .topbar .spacer { flex: 1; }
+  .theme-btn {
+    border: 1px solid var(--border); background: var(--bg-card);
+    color: var(--text); border-radius: 999px; cursor: pointer;
+    padding: 6px 14px; font-size: 13px; font-weight: 600;
+    transition: all .15s ease;
+  }
+  .theme-btn:hover { border-color: var(--primary); color: var(--primary-strong); }
+
+  /* ── Layout ── */
+  .layout { display: flex; align-items: flex-start; max-width: 1240px; margin: 0 auto; }
+  .toc {
+    position: sticky; top: 57px; align-self: flex-start;
+    width: 248px; flex: none; padding: 26px 14px 40px 22px;
+    font-size: 13.5px;
+  }
+  .toc h4 { margin: 0 0 10px; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint); }
+  .toc a { display: block; padding: 6px 10px; border-radius: 8px; color: var(--text-soft); border-left: 2px solid transparent; }
+  .toc a:hover { background: var(--bg-card); color: var(--text); text-decoration: none; }
+  .toc a.active { color: var(--primary-strong); border-left-color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+  .main { flex: 1; min-width: 0; padding: 0 26px 80px; }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative; overflow: hidden;
+    margin: 26px 0 30px; padding: 44px 38px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 48%, #ec4899 100%);
+    color: #fff; box-shadow: var(--shadow-md);
+  }
+  .hero::after {
+    content: ""; position: absolute; right: -60px; top: -60px;
+    width: 280px; height: 280px; border-radius: 50%;
+    background: rgba(255,255,255,.12); filter: blur(4px);
+  }
+  .hero h1 { margin: 0 0 6px; font-size: 34px; letter-spacing: .5px; }
+  .hero .tag { font-size: 15.5px; opacity: .94; max-width: 640px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.28);
+    padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+    backdrop-filter: blur(4px);
+  }
+  .hero .lead {
+    position: relative; z-index: 1;
+    margin: 22px 0 0; padding: 14px 16px;
+    background: rgba(255,255,255,.14); border-radius: 12px;
+    font-size: 14px; line-height: 1.75;
+  }
+
+  /* ── Sections ── */
+  section { scroll-margin-top: 70px; margin-bottom: 46px; max-width: var(--maxw); }
+  h2 {
+    font-size: 23px; margin: 0 0 18px; padding-bottom: 10px;
+    border-bottom: 2px solid var(--border-soft);
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2 .ic { font-size: 22px; }
+  h3 { font-size: 16.5px; margin: 26px 0 12px; color: var(--text); }
+  p { color: var(--text-soft); }
+  .muted { color: var(--text-faint); font-size: 13px; }
+
+  /* ── Cards ── */
+  .grid { display: grid; gap: 14px; }
+  .grid.c2 { grid-template-columns: repeat(2, 1fr); }
+  .grid.c3 { grid-template-columns: repeat(3, 1fr); }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow-sm);
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+  .card .ci { font-size: 24px; }
+  .card .ct { font-weight: 700; margin: 6px 0 4px; font-size: 15px; }
+  .card .cd { font-size: 13.2px; color: var(--text-soft); margin: 0; line-height: 1.6; }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.6px; background: var(--bg-card); }
+  th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  thead th { background: var(--bg-soft); font-weight: 700; color: var(--text); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-soft); }
+  td code, th code { font-family: var(--mono); font-size: 12.5px; background: var(--primary-soft); color: var(--primary-strong); padding: 1px 6px; border-radius: 5px; }
+
+  /* ── Code ── */
+  pre {
+    background: var(--bg-code); color: #e2e8f0; padding: 16px 18px;
+    border-radius: var(--radius-sm); overflow-x: auto; font-size: 13px; line-height: 1.65;
+    font-family: var(--mono); box-shadow: var(--shadow-sm); margin: 12px 0;
+  }
+  pre .c { color: #7f8ea3; }
+  pre .k { color: #c4b5fd; }
+  pre .s { color: #86efac; }
+  code.inline { font-family: var(--mono); font-size: 12.5px; background: var(--primary-soft); color: var(--primary-strong); padding: 1px 6px; border-radius: 5px; }
+
+  /* ── Callouts ── */
+  .note {
+    display: flex; gap: 12px; padding: 14px 16px; border-radius: var(--radius-sm);
+    font-size: 13.6px; line-height: 1.65; border: 1px solid var(--border); margin: 14px 0;
+  }
+  .note .ni { font-size: 18px; line-height: 1.4; flex: none; }
+  .note.warn { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .note.tip  { background: var(--cloud-soft); border-color: color-mix(in srgb, var(--cloud) 35%, transparent); }
+  .note.info { background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 30%, transparent); }
+  .note p { margin: 0; color: var(--text); }
+
+  .pill { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; vertical-align: middle; }
+  .pill.local { background: var(--accent-soft); color: var(--accent); }
+  .pill.both  { background: var(--primary-soft); color: var(--primary-strong); }
+
+  ul.clean { padding-left: 20px; }
+  ul.clean li { margin: 6px 0; color: var(--text-soft); }
+  ul.clean li b { color: var(--text); }
+
+  /* ── Changelog ── */
+  .changelog { position: relative; padding-left: 8px; margin-top: 6px; }
+  .changelog::before { content:""; position: absolute; left: 11px; top: 8px; bottom: 8px; width: 2px; background: var(--border); }
+  .cl-item { position: relative; padding: 0 0 18px 28px; }
+  .cl-item::before { content:""; position: absolute; left: 5px; top: 5px; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 2px solid var(--bg-card); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .cl-date { font-size: 12.5px; font-weight: 700; color: var(--primary-strong); letter-spacing: .3px; }
+  .cl-text { font-size: 13.4px; color: var(--text-soft); margin: 3px 0 0; line-height: 1.62; }
+  .cl-text b { color: var(--text); }
+
+  footer { max-width: var(--maxw); margin: 40px auto 0; padding-top: 18px; border-top: 1px solid var(--border); color: var(--text-faint); font-size: 13px; }
+
+  @media (max-width: 980px) {
+    .toc { display: none; }
+    .grid.c3, .grid.c2 { grid-template-columns: 1fr; }
+    .hero { padding: 32px 24px; }
+    .hero h1 { font-size: 27px; }
+    .main { padding: 0 16px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">🎬</span>
+  <span class="name">Interview Transcriber</span>
+  <span class="spacer"></span>
+  <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">🌙 暗色</button>
+</div>
+
+<div class="layout">
+  <nav class="toc">
+    <h4>目录</h4>
+    <a href="#overview">✨ 功能概览</a>
+    <a href="#install">📦 安装</a>
+    <a href="#quickstart">🚀 快速开始</a>
+    <a href="#usage">📖 使用说明</a>
+    <a href="#output">📄 输出文档结构</a>
+    <a href="#perf">⏱️ 性能预估</a>
+    <a href="#hw">💻 最低硬件配置</a>
+    <a href="#notes">⚠️ 注意事项</a>
+    <a href="#changelog">📝 更新日志</a>
+  </nav>
+
+  <div class="main">
+    <div class="hero">
+      <h1>🎬 Interview Transcriber</h1>
+      <div class="tag">采访视频一键转录技能 · 自动把视频变成<strong>带说话人识别、内容摘要与人物信息</strong>的结构化文档</div>
+      <div class="badges">
+        <span class="badge">🐍 Python 3.10+</span>
+        <span class="badge">☁️ 云端 Qwen3-ASR-Flash</span>
+        <span class="badge">💻 本地 SenseVoice / Paraformer</span>
+        <span class="badge">🤖 WorkBuddy 适配</span>
+        <span class="badge">⚖️ MIT License</span>
+      </div>
+      <div class="lead">
+        给 Agent 一段采访视频，它会自动跑完 <b>预处理 → 转录 → 说话人识别 → 摘要与人物信息 → 输出文档</b>，最后还会问你「要把文档发到哪里」。你只需要在中间选一下转录方式。
+      </div>
+    </div>
+
+    <!-- 功能概览 -->
+    <section id="overview">
+      <h2><span class="ic">✨</span>功能概览</h2>
+      <div class="grid c3">
+        <div class="card"><div class="ci">🎞️</div><div class="ct">输入预处理</div><p class="cd">视频：提取<strong>最清晰静帧</strong> + 转 MP3；音频：直接用作音频（跳过转码、无静帧）。</p></div>
+        <div class="card"><div class="ci">🧩</div><div class="ct">多段合并</div><p class="cd">一个采访拆成多个文件？明确告知后自动合并转录为一篇文档。</p></div>
+        <div class="card"><div class="ci">☁️</div><div class="ct">云端转录</div><p class="cd">Qwen3-ASR-Flash（可选升级，准确率最高），需 DashScope API Key。</p></div>
+        <div class="card"><div class="ci">💻</div><div class="ct">本地转录</div><p class="cd"><strong>默认</strong> SenseVoice / Paraformer（魔搭社区，中文优秀，离线可用）。</p></div>
+        <div class="card"><div class="ci">⏱️</div><div class="ct">对话时间码</div><p class="cd">每轮对话标注 <code class="inline">[MM:SS]</code>，精准定位视频位置。</p></div>
+        <div class="card"><div class="ci">🗣️</div><div class="ct">说话人识别</div><p class="cd">LLM 语义分析，自动区分「采访者 / 受访人 / 其他角色」（支持多说话人）。</p></div>
+        <div class="card"><div class="ci">📝</div><div class="ct">内容摘要</div><p class="cd">LLM 生成 3–5 句话概括采访核心内容。</p></div>
+        <div class="card"><div class="ci">👤</div><div class="ct">人物信息</div><p class="cd">提取受访人学校 / 专业 / 年级 / 家乡 / 经历 / 观点。</p></div>
+        <div class="card"><div class="ci">📤</div><div class="ct">多平台分发</div><p class="cd">本地 Word(.docx) / 钉钉文档 / 飞书 / Notion / 其他平台。</p></div>
+      </div>
+    </section>
+
+    <!-- 安装 -->
+    <section id="install">
+      <h2><span class="ic">📦</span>安装</h2>
+      <p>把这个仓库链接直接发给你的 Agent，让它自动下载安装即可：</p>
+      <pre><span class="c"># 仓库地址</span>
+https://github.com/torylyj/interview-transcriber</pre>
+      <p>安装完成后，在 Agent 对话中提到「转录采访视频」就会自动触发。</p>
+    </section>
+
+    <!-- 快速开始 -->
+    <section id="quickstart">
+      <h2><span class="ic">🚀</span>快速开始</h2>
+      <h3>前置条件</h3>
+      <ul class="clean">
+        <li><b>ffmpeg</b> — 视频处理。Windows 缺失时 Agent 会自动从<b>国内镜像</b>下载静态构建；也可手动用 choco / winget / brew 安装。</li>
+        <li><b>Python 3.10+</b> — 运行转录脚本。</li>
+        <li><b>DashScope API Key</b> — 仅<b>云端转录</b>需要（<a href="https://bailian.console.aliyun.com/?tab=model#/api-key">获取地址</a>）；本地转录完全不需要。</li>
+        <li><b>无需 HuggingFace Token</b> — 说话人统一由 LLM 语义切分，模型仅 SenseVoice / Paraformer（魔搭社区国内直连）。</li>
+      </ul>
+      <div class="note info"><span class="ni">💡</span><p><b>安装是自动的</b>：把本技能交给 Agent 后，首次使用它会自动通过<b>国内镜像</b>装好依赖与 ffmpeg（如需手动触发：<code class="inline">python scripts/setup_env.py</code>）。你通常不需要手动装任何东西。</p></div>
+    </section>
+
+    <!-- 使用说明 -->
+    <section id="usage">
+      <h2><span class="ic">📖</span>使用说明</h2>
+      <p>使用非常简单，<strong>只需要告诉 Agent 你的视频或音频地址</strong>，剩下的全部自动完成。</p>
+      <h3>基本用法</h3>
+      <pre><span class="c"># 视频</span>
+帮我转录这个采访视频：D:/videos/interview_001.mp4
+
+<span class="c"># 音频（无需视频转 MP3，也不会提取静帧）</span>
+帮我转录这段采访录音：D:/audios/interview_001.m4a</pre>
+      <p>Agent 收到后会自动执行完整流程，<strong>默认使用本地转录（SenseVoice，离线可用、无需任何配置）</strong>，不会打断你提问。</p>
+      <ul class="clean">
+        <li>如果想要<strong>更高的识别准确率</strong>，随时告诉 Agent「用云端转录」（需 DashScope API Key），它会切换为 Qwen3-ASR-Flash。</li>
+        <li>如果<strong>一个采访被拆成了多段视频/音频</strong>，只需在开头说明「这 N 个文件是同一段采访」，Agent 会自动合并转录成一篇文档。</li>
+      </ul>
+
+      <h3>常见用法示例</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>场景</th><th>示例指令</th></tr></thead>
+          <tbody>
+            <tr><td>转录并保存到本地</td><td><code>帮我转录 D:/video.mp4，保存到桌面</code></td></tr>
+            <tr><td>转录并上传钉钉文档</td><td><code>帮我转录这个视频并上传到钉钉文档：D:/video.mp4</code></td></tr>
+            <tr><td>转录音频录音</td><td><code>帮我转录这段录音：D:/audios/interview.m4a</code></td></tr>
+            <tr><td>多段合并采访</td><td><code>这段采访我分了 3 段：a.mp4 b.mp4 c.mp4，它们是同一段采访，帮我合并转录</code></td></tr>
+            <tr><td>转录多个视频</td><td><code>帮我批量转录 D:/videos/ 目录下的所有视频</code></td></tr>
+            <tr><td>只要转录文本</td><td><code>帮我转录 D:/video.mp4，不需要摘要和人物信息</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>首次使用准备（仅云端需要）</h3>
+      <p><b>云端转录</b>（推荐，准确率最高）需要配置 DashScope API Key：</p>
+      <pre><span class="c"># 获取地址：https://bailian.console.aliyun.com/?tab=model#/api-key</span>
+<span class="k">export</span> DASHSCOPE_API_KEY=<span class="s">"sk-your-key-here"</span></pre>
+      <div class="note tip"><span class="ni">💡</span><p><b>提示</b>：默认本地转录（SenseVoice，离线可用、无需配置）；若需更高准确率可切云端 Qwen3-ASR-Flash（需 DashScope API Key，费用极低）。</p></div>
+    </section>
+
+    <!-- 输出文档结构 -->
+    <section id="output">
+      <h2><span class="ic">📄</span>输出文档结构</h2>
+      <div class="note info"><span class="ni">📌</span><p>最终以 <strong>Word 文档（.docx）</strong> 形式交付，直接读取结构化数据生成，<strong>全程无 Markdown 中间文件</strong>。</p></div>
+      <div class="grid c2">
+        <div class="card"><div class="ct">① 人物静帧 <span class="pill local">仅视频</span></div><p class="cd">视频中人物画面截图（居中显示）；音频输入时无此行。</p></div>
+        <div class="card"><div class="ct">② 内容摘要</div><p class="cd">3–5 句话概括采访核心内容。</p></div>
+        <div class="card"><div class="ct">③ 人物信息</div><p class="cd">学校 / 专业 / 年级 / 家乡 / 关键经历 / 核心观点。</p></div>
+        <div class="card"><div class="ct">④ 采访记录</div><p class="cd">带说话人标签和时间码的逐句对话。</p></div>
+      </div>
+    </section>
+
+    <!-- 性能预估 -->
+    <section id="perf">
+      <h2><span class="ic">⏱️</span>性能预估</h2>
+      <p>以一段 <strong>20 分钟采访视频</strong> 为例（本机实测环境：NVIDIA RTX 4070 Ti SUPER + 模型已缓存）：</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>环节</th><th>本地模式（默认，GPU）</th><th>云端模式（Qwen3-ASR-Flash）</th></tr></thead>
+          <tbody>
+            <tr><td>视频提取音频（ffmpeg）</td><td>20–40 秒</td><td>20–40 秒</td></tr>
+            <tr><td>模型加载（每次新进程）</td><td>10–30 秒</td><td>—</td></tr>
+            <tr><td>ASR 转录</td><td><b>1.5–3 分钟</b>（GPU ~20x 实时）</td><td><b>2–4 分钟</b>（分 5 段上传+服务端）</td></tr>
+            <tr><td>说话人识别+摘要+自检（LLM）</td><td>1–3 分钟</td><td>1–3 分钟</td></tr>
+            <tr><td>抽最清晰静帧</td><td>10–20 秒</td><td>10–20 秒</td></tr>
+            <tr><td>生成 .docx</td><td>&lt;10 秒</td><td>&lt;10 秒</td></tr>
+            <tr><td><b>本机首次</b></td><td><b>≈ 4–8 分钟</b></td><td><b>≈ 4–8 分钟</b></td></tr>
+            <tr><td><b>本机后续</b></td><td><b>≈ 4–8 分钟</b></td><td><b>≈ 4–8 分钟</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="clean">
+        <li><b>本机「首次≈后续」</b>：因为模型已缓存在本地，首次不再有下载开销。技能里的「首次转录会下载模型」提醒只对<strong>全新机器第一次跑</strong>才生效。</li>
+        <li><b>全新机器首次</b>（换电脑）：本地模式额外加 ①pip 装依赖 ~1–2 分钟 + ②SenseVoice 模型下载 ~1–3 分钟，即首次 <strong>6–12 分钟</strong>；云端模式永远不需要下载模型。</li>
+        <li><b>本地 vs 云端速度相当</b>（都 4–8 分钟），差异在<strong>质量</strong>：云端中文准确率更高，本地 SenseVoice 已够用且完全离线。</li>
+      </ul>
+    </section>
+
+    <!-- 最低硬件配置 -->
+    <section id="hw">
+      <h2><span class="ic">💻</span>最低硬件配置</h2>
+      <p>纯本地转录对硬件要求不高（模型仅 ~500MB），分两档：</p>
+      <h3>纯 CPU 模式（无显卡也行）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>项</th><th>最低要求</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>CPU</td><td>任意 x86-64 双核，2.0GHz+</td><td>近 10 年内的电脑基本满足</td></tr>
+            <tr><td>内存</td><td>8GB（建议 16GB）</td><td>模型 ~0.5GB + torch 推理峰值 4–6GB</td></tr>
+            <tr><td>硬盘</td><td>10GB 可用</td><td>环境 ~1.5GB + 模型 0.5–1GB + 系统/临时</td></tr>
+            <tr><td>显卡</td><td>不需要</td><td>完全用 CPU 跑</td></tr>
+            <tr><td>系统</td><td>Windows 10/11、Linux、macOS</td><td>脚本用正斜杠，跨平台</td></tr>
+            <tr><td><b>20 分钟视频耗时</b></td><td><b>约 20–60 分钟</b></td><td>CPU 约 0.3–1x 实时</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>带 NVIDIA 显卡（推荐，速度追平云端）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>项</th><th>最低要求</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>GPU</td><td>NVIDIA 显卡，≥4GB 显存，支持 CUDA</td><td>入门级 GTX 1650 4GB / RTX 3050 4GB 即可</td></tr>
+            <tr><td>显存占用</td><td>SenseVoice 小模型推理约 1–2GB</td><td>4GB 显存绰绰有余</td></tr>
+            <tr><td>驱动</td><td>支持 CUDA 12.x</td><td>需对应 NVIDIA 驱动版本</td></tr>
+            <tr><td><b>20 分钟视频耗时</b></td><td><b>约 2–4 分钟</b></td><td>本机 RTX 4070 Ti 16GB 即此档</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn"><span class="ni">⚠️</span><p><b>硬性约束：</b></p>
+        <ul class="clean" style="margin-top:6px">
+          <li>必须是 <b>NVIDIA 显卡</b> 才能用已装的 CUDA 版 torch；AMD / Intel 核显无法用 CUDA，只能退回 CPU。</li>
+          <li><b>说话人识别强依赖联网 + DashScope API Key</b>：本地 ASR 本身能离线，但角色切分是调 qwen-plus 做的。</li>
+          <li><b>ffmpeg 必需</b>（视频抽静帧、提取音频），独立下载项，不算在 Python 环境里。</li>
+          <li><b>首次需联网</b>：下载模型（~500MB，魔搭国内直连）+ pip 依赖；之后可完全离线跑 ASR。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 注意事项 -->
+    <section id="notes">
+      <h2><span class="ic">⚠️</span>注意事项</h2>
+      <ul class="clean">
+        <li><b>文档命名规范</b>：<code class="inline">拍摄时间+人物简介</code>，如 <code class="inline">26-0509 车辆学院直博生</code>（人物简介 ≤10 字）。</li>
+        <li><b>多段采访合并</b>：必须<strong>明确告知哪几个文件属于同一段采访</strong>，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。</li>
+        <li><b>智能静帧</b>：由 <code class="inline">scripts/extract_frame.py</code> 均匀采样多帧、按清晰度比选最清晰的一张（避免黑屏/字幕遮挡帧）。</li>
+        <li><b>默认本地转录</b>：默认 SenseVoice 离线可用、无需配置；仅当需要更高准确率或提供 DashScope API Key 时才切云端。</li>
+        <li><b>时间码精度</b>：本地精确到秒；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。</li>
+        <li><b>Windows 路径</b>：使用正斜杠 <code class="inline">/</code>，避免中文路径传给 API。</li>
+        <li><b>长文本处理</b>：LLM 单次输入建议不超过 8000 字符，超长需分段。</li>
+        <li><b>在线文档上传</b>：部分平台 API 限制内容长度，超长文档需分段上传。</li>
+      </ul>
+    </section>
+
+    <!-- 更新日志 -->
+    <section id="changelog">
+      <h2><span class="ic">📝</span>更新日志</h2>
+      <div class="changelog">
+        <div class="cl-item"><div class="cl-date">2026-07-11</div><p class="cl-text"><b>补充性能预估 + 最低硬件配置</b>；并梳理修正若干表述（默认本地、SKILL 重复文本、模型下载体积范围）。</p></div>
+        <div class="cl-item"><div class="cl-date">2026-07-11</div><p class="cl-text"><b>精简依赖（默认仅 5 包）</b>：移出 faster-whisper / pyannote，说话人统一 LLM 语义切分，外网下载全走国内镜像（阿里云 / 清华 / 腾讯云 PyPI、npmmirror 二进制、魔搭、hf-mirror）。</p></div>
+        <div class="cl-item"><div class="cl-date">2026-07-10</div><p class="cl-text"><b>产品经理视角优化</b>：多段合并、最清晰静帧（extract_frame 按清晰度比选）、统一 DashScope 调用（call_qwen）、全流程进度反馈、SKILL 由 808 行瘦身至 ~178 行、默认本地转录。</p></div>
+        <div class="cl-item"><div class="cl-date">2026-07-10</div><p class="cl-text"><b>移除 Markdown 中间文件</b>：转录 → <code class="inline">_transcript.json</code> → <code class="inline">_document.json</code> → <code class="inline">.docx</code> 直出，全程无 .md。</p></div>
+        <div class="cl-item"><div class="cl-date">2026-07-10</div><p class="cl-text"><b>最终交付改为 Word(.docx)</b>；新增 Step 3.7 自检润色、Step 6 主动询问交付位置；支持音频输入（跳过转码、无静帧）。</p></div>
+        <div class="cl-item"><div class="cl-date">2026-07-09</div><p class="cl-text"><b>本地多模型支持</b>（SenseVoice / Paraformer，魔搭社区），新增对话时间码、LLM 摘要与人物信息、适配多种 AI Agent。</p></div>
+        <div class="cl-item"><div class="cl-date">2026-07-01</div><p class="cl-text"><b>初始版本</b>：完整工作流程（预处理 → 转录 → 说话人识别 → 分发）。</p></div>
+      </div>
+    </section>
+
+    <footer>
+      Interview Transcriber · MIT License · 采访视频一键转录技能<br/>
+      文档美化版 · 由 UI Designer 重排视觉层级（用户视角精简版）
+    </footer>
+  </div>
+</div>
+
+<script>
+  function toggleTheme() {
+    const root = document.documentElement;
+    const cur = root.getAttribute('data-theme');
+    const next = cur === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', next);
+    document.getElementById('themeBtn').textContent = next === 'light' ? '🌙 暗色' : '☀️ 亮色';
+  }
+  const links = Array.from(document.querySelectorAll('.toc a'));
+  const sections = links.map(a => document.querySelector(a.getAttribute('href')));
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const id = '#' + e.target.id;
+        links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === id));
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => s && obs.observe(s));
+</script>
+</body>
+</html>
