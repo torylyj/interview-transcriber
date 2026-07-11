@@ -30,7 +30,7 @@ agent_created: true
 
 ## 进度反馈（用户体验）
 
-长耗时环节（模型下载 0.5–3GB、逐段转录、LLM 说话人识别/摘要、docx 生成）用户会干等。请在每阶段向用户给出**简短进度提示**，例如：
+长耗时环节（模型下载 0.5–1GB、逐段转录、LLM 说话人识别/摘要、docx 生成）用户会干等。请在每阶段向用户给出**简短进度提示**，例如：
 - 「① 正在预处理视频 / 转码音频…」
 - 「② 首次转录需联网下载本地模型（SenseVoice ~500MB / Paraformer ~800MB），耗时约 1–5 分钟，请耐心等待；下载后自动缓存，后续转录秒级启动」
 - 「③ 正在转录第 2/5 段…」
@@ -173,7 +173,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments
 - **切段决策在选方式之后、模型自动**：云端 >5 分钟必切，本地 >20 分钟建议切，均不询问
 - **说话人统一 LLM 语义切分（本地/云端同此）**：支持多说话人（群访无需额外配置）；无需 HF Token、无需 pyannote
 - **全程无需 HuggingFace**：说话人走 LLM 语义切分，模型仅 SenseVoice/Paraformer（魔搭直连）；已移出 faster-whisper / pyannote
-- Windows 路径用正斜杠（`C:/...` 或相对路径，勿用 Git Bash 的 `/c/...` 写法，脚本已自动兼容转换）；`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）
+- Windows 路径用正斜杠（`C:/...` 或相对路径，勿用 Git Bash 的 `/c/...` 写法，脚本已自动兼容转换）；`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）
 - **长文本 LLM 分段**：单次输入 ≤ 8000 字符，超长分段后合并
 - **时间码精度**：本地精确到秒；云端段内为估算值（4 分钟粒度），文档已标注，勿当精确时间
 - **收尾必须主动询问交付位置**（Step 6），未经确认不上传外部平台
