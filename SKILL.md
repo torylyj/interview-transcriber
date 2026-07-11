@@ -46,7 +46,7 @@ agent_created: true
 **1a. 检测输入类型**：视频（`.mp4 .mov .avi .mkv .flv .wmv .webm`）/ 音频（`.mp3 .wav .m4a .aac .flac .ogg .wma`）。
 
 **1b. 视频输入 → 提取静帧 + 转 MP3**
-- 静帧：用 `scripts/extract_frame.py` 抽取**最清晰的一帧**（均匀采样多帧按清晰度比选，跳过黑屏/字幕），输出 800px 宽：
+- 静帧：用 `scripts/extract_frame.py` 抽取**最清晰的一帧**（视频【五等分】各抽 1 帧、按清晰度比选，输入定位不软解整段视频），输出 800px 宽：
   ```
   python <skill_dir>/scripts/extract_frame.py "输入.mp4" "人物静帧.jpg"
   ```

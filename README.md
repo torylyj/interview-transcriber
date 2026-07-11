@@ -176,7 +176,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 - **文档命名规范**：`拍摄时间+人物简介`，如 `26-0509 车辆学院直博生`（人物简介 ≤10 字）。
 - **多段采访合并**：必须**明确告知哪几个文件属于同一段采访**，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。
-- **智能静帧**：由 `scripts/extract_frame.py` 均匀采样多帧、按清晰度比选最清晰的一张（避免黑屏/字幕遮挡帧）。
+- **智能静帧**：由 `scripts/extract_frame.py` 将视频**五等分、各抽 1 帧**并按清晰度比选最清晰的一张（输入定位，不软解整段视频，避免黑屏/字幕遮挡帧）。
 - **默认本地转录**：默认 SenseVoice 离线可用、无需配置；仅当需要更高准确率或提供 DashScope API Key 时才切云端。
 - **时间码精度**：本地精确到秒；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
 - **Windows 路径**：使用正斜杠 `/`，避免中文路径传给 API。
@@ -189,6 +189,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 日期 | 内容 |
 |------|------|
+| 2026-07-11 | **静帧抽取优化（五等分，不软解整段）**：`extract_frame.py` 改为将视频严格**五等分**、从每段中心各抽 1 帧（默认 5 帧）按清晰度比选最清晰帧，采用 ffmpeg 输入定位（`-ss` 在 `-i` 前）只解码目标点附近极少帧，彻底避免软解整段视频的性能消耗；同步 SKILL.md / segment_commands 说明；并移除此前误加入仓库的可视化预览页 `docs/interview-transcriber.html` |
 | 2026-07-11 | **补充文档：性能预估 + 最低硬件配置**：新增「⏱️ 性能预估」（20 分钟视频，本地 GPU/CPU 与云端耗时对比，本机首次≈后续≈4–8 分钟）与「💻 最低硬件配置」（纯 CPU 8GB 内存即可跑、20 分钟约 20–60 分钟；带 NVIDIA 4GB 显存显卡约 2–4 分钟）；并梳理修正若干表述（「首次使用准备」提示改为默认本地、SKILL.md 重复文本与模型下载体积范围） |
 | 2026-07-11 | **精简依赖（默认仅 5 包）**：移出 faster-whisper（~3GB，中文一般）与 pyannote.audio（声纹分离，需 HF Token）；说话人统一改由 LLM 语义切分（免 Token）；`setup_env.py`/`requirements.txt` 默认仅装 funasr/modelscope/python-docx/pillow/dashscope，新增 `--extras` 可选项；所有外网下载改国内镜像（阿里云 PyPI / npmmirror 二进制 / 魔搭 / hf-mirror.com），ffmpeg 走 npmmirror 静态构建 |
 | 2026-07-10 | **产品经理视角优化（P1–P9/P11 + 多段合并 + SKILL 瘦身）**：①新增多段采访合并说明（用户需明确告知哪些文件属同一采访，自动合并转录）；②P8 静帧改为 `extract_frame.py` 均匀采样多帧按清晰度比选最清晰帧；③P9 新增 `call_qwen.py` 统一文本任务 DashScope 调用，并补充版本兼容说明；④P11 全流程进度反馈（脚本阶段打印 + 指示 Agent 转述进度）；⑤P7 将 SKILL.md 由 808 行精简至 ~178 行，模型下载/切段命令/Prompt 模板/输出结构/错误处理等细节抽到 `references/`；⑥默认本地转录、云端仅作升级方案 |

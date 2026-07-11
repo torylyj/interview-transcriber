@@ -33,7 +33,7 @@ ffmpeg -i 输出.mp3 -f mp3 -acodec libmp3lame -ab 192k -ar 16000 -ac 1 -ss 480 
 
 > 仅当用户**明确说明**这几个文件属于同一段采访时才合并；否则每个文件各成一篇文档。
 
-**视频**：每个文件分别抽取静帧（`extract_frame.py` 支持多视频参数，自动跨片段比选最清晰帧）+ 各自转 MP3，再把所有 MP3 合并为 `输出.mp3`：
+**视频**：每个文件分别抽取静帧（`extract_frame.py` 将视频五等分、各抽 1 帧并跨片段比选最清晰帧，输入定位不软解整段视频）+ 各自转 MP3，再把所有 MP3 合并为 `输出.mp3`：
 ```bash
 # 每个文件先转成统一格式的 16k 单声道 mp3
 ffmpeg -i "v1.mp4" -vn -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "v1.mp3" -y

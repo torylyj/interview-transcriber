@@ -1,10 +1,15 @@
 """
 抽取视频中最清晰的一帧作为人物静帧。
 
-实现：在视频时长内均匀抽取若干候选帧（跳过开头/结尾的黑屏、标题卡与字幕条），
-用 Pillow 的拉普拉斯边缘检测（FIND_EDGES）计算清晰度（像素标准差），
-选取最清晰的一张，缩放至 800px 宽后保存。
+实现：
+  1. 用 ffprobe 仅读一次时长（不解码画面）。
+  2. 将视频【五等分】，从每段中心各抽 1 帧（默认共 5 帧）。
+  3. 用 Pillow 的拉普拉斯边缘检测（FIND_EDGES）计算清晰度（像素标准差），
+     选取最清晰的一张，缩放至 800px 宽后保存。
+  4. 支持多视频参数：跨所有片段比选全局最清晰帧（多段合并采访场景）。
 
+性能关键：抽帧使用 ffmpeg 输入定位（`-ss POS -i 视频 -vframes 1`），
+只解码目标时间点附近的极少帧，【不会软解整段视频】，本地 CPU/GPU 开销极低。
 相比固定取第 5 秒，能避免取到黑屏、转场、模糊或字幕遮挡的帧。
 
 依赖: ffmpeg（自动从系统 PATH 或 技能 tools/ffmpeg/bin 查找；缺失可运行 scripts/setup_env.py 从国内镜像下载）, Pillow
@@ -98,21 +103,24 @@ def sharpness(img_path: str) -> float:
         return -1.0
 
 
-def extract_candidates(video_path: str, out_dir: str, duration: float, n: int) -> list:
-    """在视频均匀位置抽取 n 帧（800px 宽），返回帧路径列表。"""
+def extract_candidates(video_path: str, out_dir: str, duration: float, n: int = 5) -> list:
+    """将视频【五等分】，从每段中心各抽 1 帧（默认共 5 帧），返回帧路径列表。
+
+    性能关键：使用 ffmpeg 输入定位（`-ss POS -i 视频 -vframes 1`），
+    只解码该时间点附近的极少帧，【不会软解整段视频】，本地开销极低。
+    """
     candidates = []
     if duration <= 0:
-        positions = [5.0]  # 无法获取时长，兜底取第 5 秒
+        positions = [5.0]  # 无法获取时长：兜底取第 5 秒（仍走输入定位，不整段解码）
     else:
-        lo, hi = duration * 0.08, duration * 0.92  # 跳过首尾 8%
-        span = hi - lo
-        positions = [lo + span * (i + 0.5) / n for i in range(n)]
+        # 五等分：第 i 段中心 = (i + 0.5) / n × 总时长  →  10% / 30% / 50% / 70% / 90%
+        positions = [(i + 0.5) / n * duration for i in range(n)]
 
     for i, pos in enumerate(positions):
         cand = os.path.join(out_dir, f"cand_{i:02d}.jpg")
         cmd = [
-            FFMPEG, "-ss", f"{pos:.2f}", "-i", video_path,
-            "-vframes", "1", "-vf", "scale=800:-1", "-q:v", "2", cand, "-y",
+            FFMPEG, "-ss", f"{pos:.3f}", "-i", video_path,
+            "-frames:v", "1", "-vf", "scale=800:-1", "-q:v", "2", cand, "-y",
         ]
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
