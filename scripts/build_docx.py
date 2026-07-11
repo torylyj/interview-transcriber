@@ -24,6 +24,18 @@ import os
 import sys
 import json
 import argparse
+import re
+
+
+def normalize_path(p):
+    """将 Git Bash 风格路径 /c/Users/... 归一化为 Windows 路径 C:/Users/...。"""
+    if not p:
+        return p
+    m = re.match(r"^/([a-zA-Z])/(.*)$", p)
+    if m:
+        return f"{m.group(1).upper()}:/{m.group(2)}"
+    return p
+
 
 try:
     from docx import Document
@@ -213,6 +225,12 @@ def main():
     parser.add_argument("output", help="输出 .docx 路径")
     parser.add_argument("--export-md", default=None, help="额外导出临时 Markdown 的路径（可选）")
     args = parser.parse_args()
+
+    # 归一化路径（兼容 Git Bash 的 /c/... 写法，否则 Windows 原生程序找不到文件）
+    args.input = normalize_path(args.input)
+    args.output = normalize_path(args.output)
+    if args.export_md:
+        args.export_md = normalize_path(args.export_md)
 
     if not os.path.exists(args.input):
         print(f"错误: 输入文件不存在: {args.input}")

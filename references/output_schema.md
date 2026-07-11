@@ -9,7 +9,7 @@
   "input_type": "video 或 audio",
   "source_file": "<原始输入文件名，如 输入.mp4 / 输入.m4a>",
   "transcription_tool": "通义千问 Qwen3-ASR-Flash（阿里云百炼）或 SenseVoice/Paraformer 模型名",
-  "speaker_method": "LLM 语义分析 或 pyannote.audio 声纹分离 + LLM 角色映射",
+  "speaker_method": "LLM 语义分析（qwen-plus，免 HF Token）",
   "summary_method": "LLM 生成",
   "date": "YYYY-MM-DD",
   "summary": "<LLM 生成的 3-5 句话摘要，多段落用 \\n 分隔>",

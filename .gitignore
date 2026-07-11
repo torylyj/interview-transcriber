@@ -1,15 +1,7 @@
-# 临时文件
-_seg*.mp3
-_upload.md
-*_raw.txt
-*_transcript.json
-*_document.json
-*segments.json
-transcribe_config.json
-输出.mp3
-人物静帧.jpg
+# 运行时下载的 ffmpeg 静态构建（setup_env.py 自动下载到此处，不入库）
+tools/
+
+# Python 缓存
 __pycache__/
 *.pyc
-
-# 环境文件
-.env
+*.pyo

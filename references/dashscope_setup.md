@@ -9,8 +9,10 @@
 ## 安装依赖
 
 ```bash
-pip install -U dashscope   # 务必用较新版本，旧版本无 qwen3-asr-flash 等模型
-pip install pillow         # 静帧清晰度计算（extract_frame.py）用
+# 务必走国内 PyPI 镜像（直连国外常超时）
+PIP_MIRROR=https://mirrors.aliyun.com/pypi/simple
+pip install -i $PIP_MIRROR -U dashscope   # 务必用较新版本，旧版本无 qwen3-asr-flash 等模型
+pip install -i $PIP_MIRROR pillow         # 静帧清晰度计算（extract_frame.py）用
 ```
 
 ## 统一调用约定（重要 · 版本兼容）
@@ -69,9 +71,7 @@ echo "..." | python <skill_dir>/scripts/call_qwen.py --model qwen-plus
   "audio_file": "输出.mp3",
   "frame_path": "人物静帧.jpg",
   "output_dir": "./output",
-  "hf_token": "<可选，pyannote 声纹分离用>",
-  "model": "sensevoice",
-  "max_speakers": 2
+  "model": "sensevoice"
 }
 ```
 
@@ -82,12 +82,12 @@ echo "..." | python <skill_dir>/scripts/call_qwen.py --model qwen-plus
 > - `segments` **不在本文件预填**，由 Step 2.6 在选定转录方式后根据是否切段写入
 >   - 切段时：`[{"file": "_seg1.mp3", "offset": 0}, {"file": "_seg2.mp3", "offset": 240}, ...]`
 >   - 不切段时：`[{"file": "输出.mp3", "offset": 0}]`
-> - `max_speakers`：声纹分离说话人上限，群访设更大值（如 5）
+> - `max_speakers`：说话人统一由 Step 3.5 LLM 语义切分（免 HF Token），群访同样支持
 
 ## 音频分段要求（Step 2.6 决策）
 
 - 云端（Qwen3-ASR-Flash）单次调用上限 **5 分钟**：超过必须切段（按 4 分钟/段，留余量）
-- 本地（SenseVoice / Paraformer / whisper）无硬限制：长音频由模型自动切段控制内存，短音频整段直接传（均不询问用户）
+- 本地（SenseVoice / Paraformer）无硬限制：长音频由模型自动切段控制内存，短音频整段直接传（均不询问用户）
 - 切段/合并 ffmpeg 命令见 references/segment_commands.md
 
 ## 模型说明

@@ -1,0 +1,24 @@
+# 采访转录技能 Python 依赖（默认最小集合，仅需 5 个）
+# 安装请走国内镜像（见 scripts/setup_env.py 或 README「安装」章节），例如：
+#   pip install -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt
+#
+# 默认覆盖两种模式：
+#   - 云端转录（Qwen3-ASR-Flash）：dashscope + python-docx（+ 视频时 pillow/ffmpeg）
+#   - 本地转录（SenseVoice/Paraformer）：funasr + modelscope + python-docx（+ 视频时 pillow/ffmpeg）
+#
+# 说明：
+#   - funasr / modelscope ：本地 SenseVoice / Paraformer 转录（模型从魔搭社区国内直连下载，无需 HF）
+#   - python-docx / pillow ：生成 .docx 与静帧清晰度计算（必需）
+#   - dashscope            ：云端 Qwen3-ASR-Flash 转录 + 文本任务（说话人/摘要 LLM）
+#
+# ⚠️ 已移出默认（不推荐、可省，无需安装即可完成全流程）：
+#   - faster-whisper  ：~3GB 模型，中文质量一般，SenseVoice 已够用
+#   - pyannote.audio  ：声纹分离，需 HuggingFace Token；说话人改由 LLM 语义切分（免 Token）
+#   若确有需要，单独安装：
+#   pip install -i https://mirrors.aliyun.com/pypi/simple faster-whisper pyannote.audio
+
+funasr
+modelscope
+python-docx
+pillow
+dashscope

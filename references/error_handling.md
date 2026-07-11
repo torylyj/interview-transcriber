@@ -13,15 +13,15 @@
 
 - **Step 3 本地模型下载/加载失败**：
   - SenseVoice/Paraformer（魔搭社区）失败 → 提示网络/磁盘，给出 `pip install funasr modelscope` + `snapshot_download` 手动命令；可建议改用 Paraformer 或云端。
-  - faster-whisper / pyannote（HuggingFace）失败 → 脚本已内置镜像站降级；全失败则打印手动下载指南，并提示"可改用 SenseVoice（魔搭直连）或云端 Qwen3-ASR-Flash"。
-  - 依赖缺失（funasr/faster-whisper/pyannote 未装）→ 直接打印对应 `pip install` 命令后退出。
+  - （faster-whisper / pyannote 已移出默认流程，默认不装；如手动安装后失败 → 打印手动下载指南，并提示"可改用 SenseVoice（魔搭直连）或云端 Qwen3-ASR-Flash"）。
+  - 依赖缺失（funasr 未装）→ 直接打印 `pip install funasr modelscope` 命令后退出。
 
 - **Step 3 云端 API 失败/超时/配额耗尽**：
   - 偶发超时 → 自动重试（最多 2 次，指数退避）。
   - 持续失败（Key 无效 / 配额用尽 / 无网络）→ 若本地模型可用则**自动降级本地转录**并告知用户；否则明确报错并给出申请/配置 DashScope Key 的指引。
 
 - **Step 3.5 LLM 说话人识别异常**：
-  - 仅识别出 1 个说话人标签、或轮次数远少于音频时长预期 → 告警"说话人切分可能异常"，建议回看原始文本或改用其他识别方式（本地有 Token 时优先 pyannote 声纹分离）。
+  - 仅识别出 1 个说话人标签、或轮次数远少于音频时长预期 → 告警"说话人切分可能异常"，建议回看原始文本或在 Step 3.9 由用户纠正（本地无需 HF Token）。
   - 角色映射明显颠倒（如把长回答标成采访者）→ 在 Step 3.9 预览环节由用户发现并纠正。
 
 - **Step 3.8 生成 .docx 依赖缺失**：python-docx 未装 → 打印 `pip install python-docx pillow` 后退出，不破坏已生成的 `_document.json`（用户可稍后重跑生成）。

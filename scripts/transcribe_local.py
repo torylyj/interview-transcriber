@@ -1,13 +1,14 @@
 """
-本地转录脚本 — 多模型支持
-支持三种本地转录引擎，按中文识别质量从高到低排列：
+本地转录脚本 — 阿里达摩院中文模型（魔搭社区国内直连）
+
+支持两种本地转录引擎，按中文识别质量从高到低：
   1. SenseVoice (FunASR/阿里达摩院) — 中文最优，魔搭社区下载，无需 HuggingFace
   2. Paraformer (FunASR/阿里达摩院) — 中文优秀，魔搭社区下载，无需 HuggingFace
-  3. faster-whisper large-v3 (OpenAI Whisper) — 通用型，HuggingFace 下载
 
-声纹分离统一使用 pyannote.audio (需 HuggingFace Token)。
+说话人分离：统一在 Step 3.5 用 LLM 语义切分（qwen-plus），
+不再依赖 pyannote.audio 声纹分离，免去 HuggingFace Token 与额外模型下载。
 
-用法: python transcribe_local.py --config config.json [--model sensevoice|paraformer|whisper]
+用法: python transcribe_local.py --config config.json [--model sensevoice|paraformer]
 配置示例见 SKILL.md Step 2
 """
 
@@ -17,15 +18,8 @@ import json
 import argparse
 from datetime import datetime
 
-# ─── HuggingFace 镜像站（pyannote.audio 用） ───────────────────
-HF_MIRRORS = [
-    "https://hf-mirror.com",       # 国内镜像站（推荐，全量镜像）
-    "https://huggingface.co",      # 官方源（需 VPN/代理）
-]
-os.environ.setdefault("HF_ENDPOINT", HF_MIRRORS[0])
-
-# ─── 模型定义 ──────────────────────────────────────────────────
-# 每个模型后端的配置信息
+# ── 模型定义 ──────────────────────────────────────────────────
+# 仅保留阿里达摩院中文模型（魔搭社区国内直连，无需 HuggingFace）。
 MODEL_CONFIGS = {
     "sensevoice": {
         "name": "SenseVoiceSmall",
@@ -35,7 +29,7 @@ MODEL_CONFIGS = {
         "quality": "⭐⭐⭐⭐ (中文优秀，接近云端)",
         "description": "阿里达摩院 SenseVoice，专为中文优化，支持多语言/情感识别",
         "funasr_model": "iic/SenseVoiceSmall",
-        "needs_hf": False,  # 不需要 HuggingFace，从 ModelScope 下载
+        "needs_hf": False,
     },
     "paraformer": {
         "name": "Paraformer-large",
@@ -49,21 +43,7 @@ MODEL_CONFIGS = {
         "funasr_punc": "iic/punc_ct-transformer_cn-en-common-vocab471067-large",
         "needs_hf": False,
     },
-    "whisper": {
-        "name": "faster-whisper large-v3",
-        "source": "HuggingFace",
-        "source_url": "https://huggingface.co/Systran/faster-whisper-large-v3",
-        "size": "~3GB",
-        "quality": "⭐⭐⭐ (中文一般，人名/专有名词错误率较高)",
-        "description": "OpenAI Whisper large-v3，通用多语言模型，中文非最优",
-        "whisper_model": "large-v3",
-        "needs_hf": True,
-    },
 }
-
-
-def get_hf_endpoint():
-    return os.environ.get("HF_ENDPOINT", "https://huggingface.co")
 
 
 def format_timestamp(seconds: float) -> str:
@@ -74,7 +54,7 @@ def format_timestamp(seconds: float) -> str:
     return f"[{mm:02d}:{ss:02d}]"
 
 
-# ─── SenseVoice / Paraformer 后端 (FunASR) ─────────────────────
+# ── FunASR 后端 (SenseVoice / Paraformer) ────────────────────
 
 def load_funasr_model(model_key: str):
     """加载 FunASR 模型（SenseVoice 或 Paraformer），从 ModelScope 自动下载"""
@@ -83,12 +63,12 @@ def load_funasr_model(model_key: str):
     except ImportError:
         print("错误: funasr 未安装，请执行: pip install funasr")
         print("  FunASR 是阿里达摩院开源语音识别工具包")
-        print("  模型从 ModelScope 魔搭社区自动下载，无需 HuggingFace")
+        print("  模型从 ModelScope 魔搭社区自动下载（国内直连，无需 HuggingFace）")
         sys.exit(1)
 
     cfg = MODEL_CONFIGS[model_key]
     print(f"加载 {cfg['name']} 模型（约 {cfg['size']}，从 {cfg['source']} 自动下载）...")
-    print(f"  ⏳ 若本地尚未缓存，首次下载约需 {cfg['size']}，请稍候（下载进度由 modelscope 输出）")
+    print(f"  ⏳ 首次运行需下载模型（{cfg['size']}），耗时约 1–5 分钟（取决于网速），下载进度由 modelscope 输出，请耐心等待")
 
     kwargs = {
         "model": cfg["funasr_model"],
@@ -156,9 +136,12 @@ def transcribe_funasr(model, audio_path: str, model_key: str) -> list:
     else:
         # SenseVoice 或无 VAD 的 Paraformer：整段文本
         if raw_text:
-            # SenseVoice 输出可能含 < |zh| > 等语言标签，清理
+            # SenseVoice 输出可能含 <|zh|> 等语言标签，清理
             clean = raw_text
-            for tag in ["<|zh|>", "<|en|>", "<|ja|>", "<|ko|>", "<|nospeech|>", "<|HAPPY|>", "<|SAD|>", "<|ANGRY|>", "<|NEUTRAL|>", "<|FEARFUL|>", "<|DISGUSTED|>", "<|SURPRISED|>", "<|Speech|>", "<|BGM|>", "<|Laughter|>", "<|Applause|>"]:
+            for tag in ["<|zh|>", "<|en|>", "<|ja|>", "<|ko|>", "<|nospeech|>",
+                        "<|HAPPY|>", "<|SAD|>", "<|ANGRY|>", "<|NEUTRAL|>",
+                        "<|FEARFUL|>", "<|DISGUSTED|>", "<|SURPRISED|>",
+                        "<|Speech|>", "<|BGM|>", "<|Laughter|>", "<|Applause|>"]:
                 clean = clean.replace(tag, "")
             clean = clean.strip()
             if clean:
@@ -172,148 +155,10 @@ def transcribe_funasr(model, audio_path: str, model_key: str) -> list:
     return segments
 
 
-# ─── faster-whisper 后端 ────────────────────────────────────────
-
-def load_whisper_model(model_size: str = "large-v3"):
-    """加载 faster-whisper 模型，支持多镜像站自动降级"""
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError:
-        print("错误: faster-whisper 未安装，请执行: pip install faster-whisper")
-        sys.exit(1)
-
-    sizes = {"tiny": "75MB", "base": "145MB", "small": "466MB", "medium": "1.5GB", "large-v3": "3GB"}
-    print(f"加载 faster-whisper 模型: {model_size}（约 {sizes.get(model_size, '?')}，首次使用会自动下载）...")
-    print(f"  ⏳ 若本地尚未缓存，首次下载约需 {sizes.get(model_size, '?')}，请稍候")
-    print(f"  当前下载源: {get_hf_endpoint()}")
-
-    try:
-        return WhisperModel(model_size, device="auto", compute_type="auto"), model_size
-    except Exception as e:
-        current = get_hf_endpoint()
-        for mirror in HF_MIRRORS:
-            if mirror == current:
-                continue
-            print(f"\n⚠️ 下载失败({current})，尝试切换镜像站: {mirror}")
-            os.environ["HF_ENDPOINT"] = mirror
-            try:
-                return WhisperModel(model_size, device="auto", compute_type="auto"), model_size
-            except Exception:
-                continue
-        # 全部失败
-        print(f"\n❌ faster-whisper {model_size} 下载失败（所有镜像站均不可用）")
-        print(f"  手动下载: https://hf-mirror.com/Systran/faster-whisper-{model_size}")
-        print(f"  或使用 SenseVoice/Paraformer 模型（从魔搭社区下载，无需 HuggingFace）")
-        print(f"原始错误: {e}")
-        sys.exit(1)
-
-
-def transcribe_whisper(model, audio_path: str, model_size: str) -> list:
-    """用 faster-whisper 转录单个音频段"""
-    print(f"  转录中 (faster-whisper {model_size}): {audio_path}")
-    segments_gen, info = model.transcribe(
-        audio_path,
-        language="zh",
-        beam_size=5,
-        vad_filter=True,
-    )
-
-    results = []
-    for seg in segments_gen:
-        text = seg.text.strip()
-        if text:
-            results.append({"start": seg.start, "end": seg.end, "text": text})
-    print(f"    生成 {len(results)} 个文本片段")
-    return results
-
-
-# ─── pyannote.audio 声纹分离 ───────────────────────────────────
-
-def load_diarization_pipeline(hf_token: str):
-    """加载 pyannote.audio 声纹分离模型，支持多镜像站自动降级"""
-    try:
-        from pyannote.audio import Pipeline
-    except ImportError:
-        print("错误: pyannote.audio 未安装，请执行: pip install pyannote.audio")
-        sys.exit(1)
-
-    print("加载 pyannote.audio 声纹分离模型（约 100MB，首次使用会自动下载）...")
-    print(f"  当前下载源: {get_hf_endpoint()}")
-
-    try:
-        return Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            use_auth_token=hf_token,
-        )
-    except Exception as e:
-        current = get_hf_endpoint()
-        for mirror in HF_MIRRORS:
-            if mirror == current:
-                continue
-            print(f"\n⚠️ 下载失败({current})，尝试切换镜像站: {mirror}")
-            os.environ["HF_ENDPOINT"] = mirror
-            try:
-                return Pipeline.from_pretrained(
-                    "pyannote/speaker-diarization-3.1",
-                    use_auth_token=hf_token,
-                )
-            except Exception:
-                continue
-        print(f"\n❌ pyannote.audio 模型下载失败（所有镜像站均不可用）")
-        print(f"  需要 HuggingFace Token + 接受模型条款:")
-        print(f"  1. 注册: https://huggingface.co/join")
-        print(f"  2. Token: https://huggingface.co/settings/tokens")
-        print(f"  3. 接受条款: https://huggingface.co/pyannote/speaker-diarization-3.1")
-        print(f"  手动下载: export HF_ENDPOINT=https://hf-mirror.com && huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_TOKEN")
-        print(f"原始错误: {e}")
-        sys.exit(1)
-
-
-def diarize_segment(diarization_pipeline, audio_path: str, min_speakers: int = 1, max_speakers: int = 2) -> list:
-    """用 pyannote.audio 对单个音频段做声纹分离（支持多说话人）"""
-    print(f"  声纹分离中: {audio_path}（说话人范围 {min_speakers}-{max_speakers}）")
-    diarization = diarization_pipeline(audio_path, min_speakers=min_speakers, max_speakers=max_speakers)
-
-    turns = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
-        turns.append({"start": turn.start, "end": turn.end, "speaker": speaker})
-    print(f"    识别到 {len(set(t['speaker'] for t in turns))} 个说话人, {len(turns)} 个轮次")
-    return turns
-
-
-# ─── 对齐 & 合并 ────────────────────────────────────────────────
-
-def align_speakers(asr_segments: list, diarization_turns: list) -> list:
-    """将 ASR 文本片段与 pyannote 说话人标签对齐"""
-    aligned = []
-    for wseg in asr_segments:
-        mid = (wseg["start"] + wseg["end"]) / 2 if wseg["end"] > 0 else wseg["start"]
-        best_speaker = "UNKNOWN"
-
-        for turn in diarization_turns:
-            if turn["start"] <= mid <= turn["end"]:
-                best_speaker = turn["speaker"]
-                break
-
-        if best_speaker == "UNKNOWN" and diarization_turns:
-            min_dist = float("inf")
-            for turn in diarization_turns:
-                dist = min(abs(mid - turn["start"]), abs(mid - turn["end"]))
-                if dist < min_dist:
-                    min_dist = dist
-                    best_speaker = turn["speaker"]
-
-        aligned.append({
-            "speaker": best_speaker,
-            "text": wseg["text"],
-            "start": wseg["start"],
-            "end": wseg["end"],
-        })
-    return aligned
-
+# ── 对齐 & 合并 ──────────────────────────────────────────────
 
 def merge_aligned_segments(all_aligned: list, segment_offsets: list) -> list:
-    """合并所有段的对齐结果，加上段偏移量"""
+    """合并所有段的结果，加上段偏移量"""
     merged = []
     for aligned, offset in zip(all_aligned, segment_offsets):
         for item in aligned:
@@ -326,7 +171,7 @@ def merge_aligned_segments(all_aligned: list, segment_offsets: list) -> list:
     return merged
 
 
-# ─── 输出生成 ──────────────────────────────────────────────────
+# ── 输出生成 ──────────────────────────────────────────────────
 
 def generate_raw_text(merged: list) -> str:
     """生成带时间码和 SPEAKER 标签的原始文本"""
@@ -363,6 +208,7 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
 
     frame_path 为 None 时（音频输入）不输出静帧图。
     raw_text 为带时间码和 SPEAKER 标签的原始转录文本，供 Step 3.5 LLM 角色映射使用。
+    说话人分离统一由 LLM 语义分析完成（speaker_method 字段标明）。
     """
     return {
         "title": title,
@@ -371,21 +217,22 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
         "input_type": input_type,
         "transcription_tool": model_name,
         "model": "local",
+        "speaker_method": "LLM 语义分析（Step 3.5，qwen-plus）",
         "date": datetime.now().strftime("%Y-%m-%d"),
         "raw_text": generate_raw_text(merged),
     }
 
 
-# ─── 主流程 ────────────────────────────────────────────────────
+# ── 主流程 ────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="本地转录（多模型支持 + 声纹分离 + 时间码）")
+    parser = argparse.ArgumentParser(description="本地转录（阿里达摩院中文模型 + LLM 说话人切分）")
     parser.add_argument("--config", required=True, help="JSON 配置文件路径")
     parser.add_argument(
         "--model",
         default=None,
-        choices=["sensevoice", "paraformer", "whisper"],
-        help="转录模型: sensevoice (推荐) | paraformer | whisper",
+        choices=["sensevoice", "paraformer"],
+        help="转录模型: sensevoice (推荐) | paraformer",
     )
 
     args = parser.parse_args()
@@ -397,7 +244,6 @@ def main():
     doc_title = config.get("title", "转录文档")
     source_file = config.get("source_file", config.get("video_file", ""))
     frame_path = config.get("frame_path")
-    hf_token = config.get("hf_token", "")
     segments = config.get("segments", [])
 
     # 确定模型
@@ -412,32 +258,22 @@ def main():
         print("错误: 配置中缺少 segments（音频切段列表）")
         sys.exit(1)
 
-    if not hf_token:
-        print("⚠️ 未配置 hf_token，将跳过声纹分离（仅转录，不区分说话人）")
-        print("  pyannote.audio 需要 HuggingFace Token:")
-        print("  1. 注册: https://huggingface.co/join")
-        print("  2. Token: https://huggingface.co/settings/tokens")
-        print("  3. 接受条款: https://huggingface.co/pyannote/speaker-diarization-3.1")
-        print("  无 Token 时可直接用云端模式（LLM 语义切分说话人），或转录后手动处理\n")
-
     print(f"\n{'='*60}")
     print(f"开始本地转录")
     print(f"  模型: {model_cfg['name']} ({model_cfg['quality']})")
     print(f"  下载源: {model_cfg['source']}")
     print(f"  大小: {model_cfg['size']}")
-    print(f"  声纹分离: {'pyannote.audio' if hf_token else '跳过（无 Token）'}")
+    print(f"  说话人: LLM 语义切分（Step 3.5，无需 HuggingFace Token）")
     print(f"  共 {len(segments)} 个音频段")
     print(f"{'='*60}\n")
 
-    # 加载 ASR 模型
-    if model_key in ("sensevoice", "paraformer"):
-        asr_model, asr_key = load_funasr_model(model_key)
-    else:
-        whisper_size = model_cfg.get("whisper_model", "large-v3")
-        asr_model, asr_key = load_whisper_model(whisper_size)
+    # 首次运行提示（模型需联网下载，耗时较久）
+    print(f"\n⏳ 首次转录提示：将加载本地模型「{model_cfg['name']}」（{model_cfg['size']}），")
+    print(f"   若本地尚未缓存，需联网下载，耗时约 1–5 分钟，请耐心等待；")
+    print(f"   下载完成后会自动缓存，后续转录秒级启动。\n")
 
-    # 加载声纹分离模型
-    diarization_pipeline = load_diarization_pipeline(hf_token) if hf_token else None
+    # 加载 ASR 模型
+    asr_model, asr_key = load_funasr_model(model_key)
 
     # 逐段处理
     all_aligned = []
@@ -451,26 +287,16 @@ def main():
         print(f"\n--- 段 {i+1}/{len(segments)}: {seg_file} (偏移 {seg_offset}s) ---")
 
         # a. ASR 转录
-        if model_key in ("sensevoice", "paraformer"):
-            asr_segments = transcribe_funasr(asr_model, seg_file, model_key)
-        else:
-            asr_segments = transcribe_whisper(asr_model, seg_file, asr_key)
+        asr_segments = transcribe_funasr(asr_model, seg_file, asr_key)
 
         if not asr_segments:
             print("  ⚠️ 本段无转录结果，跳过")
             all_aligned.append([])
             continue
 
-        # b. 声纹分离 + 对齐
-        if diarization_pipeline:
-            min_sp = config.get("min_speakers", 1)
-            max_sp = config.get("max_speakers", 2)
-            diarization_turns = diarize_segment(diarization_pipeline, seg_file, min_sp, max_sp)
-            aligned = align_speakers(asr_segments, diarization_turns)
-        else:
-            # 无声纹分离，全部标记为 SPEAKER_00
-            aligned = [{"speaker": "SPEAKER_00", "text": s["text"], "start": s["start"], "end": s["end"]} for s in asr_segments]
-
+        # b. 本地不区分说话人，统一标记为 SPEAKER_00，
+        #    由 Step 3.5 LLM 语义切分映射到角色名
+        aligned = [{"speaker": "SPEAKER_00", "text": s["text"], "start": s["start"], "end": s["end"]} for s in asr_segments]
         all_aligned.append(aligned)
 
         # 预览
@@ -482,13 +308,6 @@ def main():
     # 合并
     merged = merge_aligned_segments(all_aligned, segment_offsets)
     print(f"\n合并完成: 共 {len(merged)} 个片段")
-
-    # 保存原始文本
-    raw_text = generate_raw_text(merged)
-    raw_path = os.path.join(output_dir, f"{doc_title}_raw.txt")
-    with open(raw_path, "w", encoding="utf-8") as f:
-        f.write(raw_text)
-    print(f"原始文本（带时间码）保存: {raw_path}")
 
     # 生成结构化转录数据（JSON，无 Markdown；供 Step 3.5 处理与 build_docx 直接生成 .docx）
     data = generate_transcript_json(
@@ -511,10 +330,7 @@ def main():
     print(f"\n说话人片段分布: {speaker_counts}")
 
     print(f"\n🎉 本地转录完成！（模型: {model_cfg['name']}）")
-    if not hf_token:
-        print("⚠️ 未做声纹分离，请在 Step 3.5 中使用 LLM 语义切分说话人（同云端模式）")
-    else:
-        print("请继续执行 Step 3.5 LLM 角色映射（保留时间码）。")
+    print("请继续执行 Step 3.5 LLM 说话人识别（读取 raw_text，保留时间码）。")
     return json_path
 
 

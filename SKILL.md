@@ -1,7 +1,7 @@
 ---
 name: interview-transcriber
 description: |
-  采访转录全流程处理技能（支持视频与音频输入，也支持「一个采访拆成多段文件」合并转录）。默认本地转录（SenseVoice/Paraformer 魔搭社区中文模型，离线可用、无需 API Key）；可选云端转录（Qwen3-ASR-Flash，准确率更高，需 DashScope API Key）作为升级方案。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录（可选 pyannote.audio 声纹分离）-> LLM 智能说话人识别（支持多说话人，保留时间码） -> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx，全程无 Markdown 中间文件）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
+  采访转录全流程处理技能（支持视频与音频输入，也支持「一个采访拆成多段文件」合并转录）。默认本地转录（SenseVoice/Paraformer 魔搭社区中文模型，离线可用、无需 API Key）；可选云端转录（Qwen3-ASR-Flash，准确率更高，需 DashScope API Key）作为升级方案。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> LLM 智能说话人识别（统一语义切分，免 HuggingFace Token，支持多说话人，保留时间码） -> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx，全程无 Markdown 中间文件）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
   若用户把一个采访拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段采访，技能自动合并转录为一篇文档。
   适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后主动询问用户交付位置，并提示云端转录作为更高精度的可选方案。
 agent_created: true
@@ -32,7 +32,7 @@ agent_created: true
 
 长耗时环节（模型下载 0.5–3GB、逐段转录、LLM 说话人识别/摘要、docx 生成）用户会干等。请在每阶段向用户给出**简短进度提示**，例如：
 - 「① 正在预处理视频 / 转码音频…」
-- 「② 首次使用需下载本地模型（约 500MB），请稍候」
+- 「② 首次转录需联网下载本地模型（SenseVoice ~500MB / Paraformer ~800MB），耗时约 1–5 分钟，请耐心等待；下载后自动缓存，后续转录秒级启动」
 - 「③ 正在转录第 2/5 段…」
 - 「④ 正在做说话人识别 / 生成摘要…」
 - 「⑤ 正在生成 Word 文档…」
@@ -70,14 +70,16 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 ### Step 2.5: 确定转录方式（默认本地）
 
 默认本地（`mode: "local"`，SenseVoice），**不打断询问**。仅当用户明确要求云端/提供 Key，或要求其他本地模型时才切换。配置 `transcribe_config.json`：
-- 云端（`mode: "cloud"`）：需 `api_key`；本地（`mode: "local"`）：`model` 默认 sensevoice（可选 paraformer/whisper），`hf_token` 可选（声纹分离用），`max_speakers` 默认 2（群访设更大如 5）。
+
+**首次转录提醒（必须执行）：** 在真正运行转录脚本（Step 3）之前，必须先用一句话告知用户——「本次为首次转录，将联网下载本地模型（SenseVoice 约 500MB），耗时约 1–5 分钟，请耐心等待；下载完成后会自动缓存，之后转录秒级启动」。脚本 `transcribe_local.py` 启动时也会打印同样提示。这样做是为避免用户面对数分钟静默误以为卡死。
+- 云端（`mode: "cloud"`）：需 `api_key`；本地（`mode: "local"`）：`model` 默认 sensevoice（可选 paraformer）。说话人统一由 Step 3.5 LLM 语义切分（免 HF Token），群访等多个说话人同样支持。
 - 配置模板（cloud/local）见 references/dashscope_setup.md；模型下载/镜像/HF Token 说明见 references/model_download.md。
 
 ### Step 2.6: 切段决策（模型自动，不询问）
 
 用 ffprobe 获取音频时长，按所选模型能力自动决策（详见 references/segment_commands.md）：
 - **云端 Qwen3-ASR-Flash**：>5 分钟必切（4 分钟/段，留余量）；≤5 分钟整段。
-- **本地 SenseVoice/Paraformer/whisper**：>20 分钟建议切（4 分钟/段）；短音频整段。
+- **本地 SenseVoice/Paraformer**：>20 分钟建议切（4 分钟/段）；短音频整段。
 - 切段命令见 references/segment_commands.md。结果写入 config 的 `segments`（切段：offset 递增；不切：`[{"file":"输出.mp3","offset":0}]`）。
 
 ### Step 3: 运行转录
@@ -86,13 +88,13 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 **3A. 云端（可选升级）**：`python <skill_dir>/scripts/transcribe_qwen.py --config transcribe_config.json` — 逐段调用 qwen3-asr-flash，生成 `<标题>_transcript.json`（含 metadata + `raw_text`，无 Markdown）。
 
-**3B. 本地（默认）**：`python <skill_dir>/scripts/transcribe_local.py --config transcribe_config.json [--model sensevoice]` — 逐段 ASR →（可选）pyannote 声纹分离 → 对齐，生成 `<标题>_transcript.json`（带 SPEAKER 标签）。依赖安装见 references/model_download.md。
+**3B. 本地（默认）**：`python <skill_dir>/scripts/transcribe_local.py --config transcribe_config.json [--model sensevoice]` — 逐段 ASR，生成 `<标题>_transcript.json`（统一标 `SPEAKER_00`，说话人由 Step 3.5 LLM 语义切分）。依赖安装见 references/model_download.md。
 
 ### Step 3.5: LLM 说话人识别（必须执行！）
 
 无论云端/本地都需 LLM：
 - **云端**：连续文本 → LLM 语义切分，识别所有说话人（采访者/受访人/其他如记者乙、旁白）。
-- **本地**：pyannote 已标 `SPEAKER_00/01…` → LLM 映射为角色名（**支持多说话人**）。
+- **本地**：脚本统一标 `SPEAKER_00` → LLM 语义切分为角色名（**支持多说话人：采访者/受访人/记者乙/旁白等，免 HF Token**）。
 
 方法 A（Agent 自身 LLM）直接按 prompt 输出；方法 B（外部 API）用 `python <skill_dir>/scripts/call_qwen.py --prompt-file speaker_prompt.txt`。完整 prompt 模板见 references/prompts.md。
 
@@ -146,7 +148,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments
 
 - ❌ 启发式方法（关键词+段落长度）：已废弃，完全不可靠。
 - ✅ 云端模式：Qwen3-ASR-Flash 转录 + LLM 语义切分（准确率 95%+，支持多说话人）。
-- ✅ 本地模式：pyannote.audio 声纹分离 + LLM 角色映射（支持多说话人：采访者/受访人/记者乙/旁白等）。
+- ✅ 本地模式：LLM 语义切分（免 HF Token，支持多说话人：采访者/受访人/记者乙/旁白等）。
 - Qwen3-ASR-Flash 不直接支持说话人分离；云端最优方案为「转录 + LLM 语义分段」。
 
 ## 错误处理与失败恢复
@@ -169,9 +171,9 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments
 - **默认本地转录**，不强制询问；仅用户要求更高准确率或提供 Key 时切云端
 - **输入类型自动识别**：视频才提取静帧+转 MP3；音频跳过且 `frame_path=null` 不输出静帧
 - **切段决策在选方式之后、模型自动**：云端 >5 分钟必切，本地 >20 分钟建议切，均不询问
-- **本地声纹分离支持多说话人**：`max_speakers` 可放宽（群访设 5）；无 HF Token 可跳过，转录后用 LLM 语义切分
-- **HuggingFace 镜像仅 whisper/pyannote 需要**；SenseVoice/Paraformer 从魔搭直连
-- Windows 路径用正斜杠 `/`；`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）
+- **说话人统一 LLM 语义切分（本地/云端同此）**：支持多说话人（群访无需额外配置）；无需 HF Token、无需 pyannote
+- **全程无需 HuggingFace**：说话人走 LLM 语义切分，模型仅 SenseVoice/Paraformer（魔搭直连）；已移出 faster-whisper / pyannote
+- Windows 路径用正斜杠（`C:/...` 或相对路径，勿用 Git Bash 的 `/c/...` 写法，脚本已自动兼容转换）；`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）
 - **长文本 LLM 分段**：单次输入 ≤ 8000 字符，超长分段后合并
 - **时间码精度**：本地精确到秒；云端段内为估算值（4 分钟粒度），文档已标注，勿当精确时间
 - **收尾必须主动询问交付位置**（Step 6），未经确认不上传外部平台

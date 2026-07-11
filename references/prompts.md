@@ -67,7 +67,7 @@ Raw transcript:
 {raw_text}
 ```
 
-> 本地 faster-whisper 文本质量较差可能影响角色映射；如效果不佳建议切换云端。
+> 本地 SenseVoice/Paraformer 中文质量优秀，配合 LLM 语义切分角色映射效果好；如个别长回答切分不佳，可在 Step 3.9 预览环节由用户纠正或改用云端。
 
 ---
 

@@ -7,7 +7,7 @@
 
 相比固定取第 5 秒，能避免取到黑屏、转场、模糊或字幕遮挡的帧。
 
-依赖: ffmpeg（需在系统 PATH）, Pillow
+依赖: ffmpeg（自动从系统 PATH 或 技能 tools/ffmpeg/bin 查找；缺失可运行 scripts/setup_env.py 从国内镜像下载）, Pillow
 用法:
   python extract_frame.py "输入.mp4" "人物静帧.jpg"
   python extract_frame.py "v1.mp4" "v2.mp4" "人物静帧.jpg"   # 多段合并采访：跨片段比选最清晰帧
@@ -15,16 +15,52 @@
 
 import os
 import sys
+import shutil
 import subprocess
 import tempfile
 import argparse
+import re
+
+
+def find_executable(name):
+    """定位 ffmpeg / ffprobe：
+    优先系统 PATH；其次技能自带 tools/ffmpeg/bin（由 scripts/setup_env.py 从国内镜像下载）。
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    here = os.path.dirname(os.path.abspath(__file__))
+    alt = os.path.normpath(os.path.join(here, "..", "tools", "ffmpeg", "bin", name + ".exe"))
+    if os.path.isfile(alt):
+        return alt
+    return None
+
+
+# 启动即解析 ffmpeg / ffprobe 路径，供下方 subprocess 调用
+FFMPEG = find_executable("ffmpeg")
+FFPROBE = find_executable("ffprobe")
+
+
+def normalize_path(p):
+    """将 Git Bash 风格路径 /c/Users/... 归一化为 Windows 路径 C:/Users/...，
+    避免 Windows 原生程序（ffmpeg / Python）无法识别 /c/ 前缀导致文件找不到。"""
+    if not p:
+        return p
+    m = re.match(r"^/([a-zA-Z])/(.*)$", p)
+    if m:
+        return f"{m.group(1).upper()}:/{m.group(2)}"
+    return p
 
 
 def check_ffmpeg():
-    try:
-        subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, check=True, timeout=15)
-    except Exception:
-        print("错误: 未找到 ffmpeg，请先安装并加入 PATH（https://ffmpeg.org/）")
+    if FFMPEG is None:
+        print("错误: 未找到 ffmpeg。请运行技能自带安装脚本（从国内镜像自动下载）：")
+        print("  python <技能目录>/scripts/setup_env.py")
+        print("  或手动下载 ffmpeg 静态构建放入系统 PATH：")
+        print("  https://registry.npmmirror.com/-/binary/ffmpeg-static/")
+        sys.exit(1)
+    if FFPROBE is None:
+        print("错误: 未找到 ffprobe（ffmpeg 组件）。请重新运行安装脚本或确认 ffmpeg 完整。")
         sys.exit(1)
 
 
@@ -32,7 +68,7 @@ def get_duration(video_path: str) -> float:
     """用 ffprobe 获取视频时长（秒），失败返回 0。"""
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [FFPROBE, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
             capture_output=True, text=True, check=True, timeout=30,
         )
@@ -75,7 +111,7 @@ def extract_candidates(video_path: str, out_dir: str, duration: float, n: int) -
     for i, pos in enumerate(positions):
         cand = os.path.join(out_dir, f"cand_{i:02d}.jpg")
         cmd = [
-            "ffmpeg", "-ss", f"{pos:.2f}", "-i", video_path,
+            FFMPEG, "-ss", f"{pos:.2f}", "-i", video_path,
             "-vframes", "1", "-vf", "scale=800:-1", "-q:v", "2", cand, "-y",
         ]
         try:
@@ -116,6 +152,10 @@ def main():
 
     check_ffmpeg()
 
+    # 归一化路径（兼容 Git Bash 的 /c/... 写法，否则 Windows 原生 ffmpeg 找不到文件）
+    args.videos = [normalize_path(v) for v in args.videos]
+    args.output = normalize_path(args.output)
+
     tmp = tempfile.mkdtemp(prefix="frame_")
     best_path, best_score = pick_best(args.videos, tmp, args.candidates)
 
@@ -124,7 +164,7 @@ def main():
         print("  ⚠️ 候选帧抽取失败，兜底抽取第 5 秒")
         try:
             subprocess.run(
-                ["ffmpeg", "-ss", "5", "-i", args.videos[0], "-vframes", "1",
+                [FFMPEG, "-ss", "5", "-i", args.videos[0], "-vframes", "1",
                  "-vf", "scale=800:-1", "-q:v", "2", args.output, "-y"],
                 capture_output=True, text=True, check=True, timeout=60,
             )

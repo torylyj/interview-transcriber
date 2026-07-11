@@ -2,29 +2,38 @@
 
 ## 模型对比
 
-| 模型 | 下载源 | 需要 HF Token | 中文质量 | 大小 |
-|------|--------|--------------|---------|------|
-| SenseVoiceSmall（本地默认） | 魔搭社区 modelscope.cn | 否 | ⭐⭐⭐⭐ 优秀 | ~500MB |
-| Paraformer-large | 魔搭社区 modelscope.cn | 否 | ⭐⭐⭐⭐ 优秀 | ~800MB |
-| faster-whisper large-v3 | HuggingFace | 否（需镜像） | ⭐⭐⭐ 一般 | ~3GB |
-| pyannote.audio（声纹分离） | HuggingFace | 是 | — | ~100MB |
+| 模型 | 下载源 | 需要 HF Token | 中文质量 | 大小 | 备注 |
+|------|--------|--------------|---------|------|------|
+| SenseVoiceSmall（本地默认） | 魔搭社区 modelscope.cn | 否 | ⭐⭐⭐⭐ 优秀 | ~500MB | 推荐 |
+| Paraformer-large | 魔搭社区 modelscope.cn | 否 | ⭐⭐⭐⭐ 优秀 | ~800MB | 备选 |
+| faster-whisper large-v3 | HuggingFace | 否（需镜像） | ⭐⭐⭐ 一般 | ~3GB | **已移出默认（不推荐，SenseVoice 已够用）** |
+| pyannote.audio（声纹分离） | HuggingFace | 是 | — | ~100MB | **已移出默认（说话人改走 LLM 语义切分，免 Token）** |
 
 - SenseVoice / Paraformer 从魔搭社区下载，**国内直连、无需 HuggingFace、无需 API Key**，离线可用。
-- faster-whisper 从 HuggingFace 下载（脚本内置镜像站自动降级）；pyannote.audio 需要 HuggingFace Token + 接受模型条款。
+- faster-whisper / pyannote.audio **已移出默认流程**（不推荐、可省）：说话人统一改由 LLM 语义切分，无需声纹分离；SenseVoice 中文质量已够用，无需 ~3GB 的 whisper。
+- **ffmpeg 安装**：Windows 缺失时运行 `python scripts/setup_env.py` 自动从 **npmmirror 二进制镜像**下载静态构建（含 ffprobe），无需访问 GitHub releases（国内常下载不动）。
 
-## 依赖安装
+## 依赖安装（务必走国内镜像）
+
+> ⚠️ 直连国外 PyPI / GitHub 经常超时下载不动。推荐一条命令自动装好（含 ffmpeg）：
+> ```bash
+> python scripts/setup_env.py
+> ```
+> 或手动指定国内 PyPI 镜像（阿里云 / 清华 / npmmirror 任选）：
 
 ```bash
-# 本地 ASR（推荐）
-pip install funasr            # SenseVoice / Paraformer
-pip install faster-whisper    # 备选（通用多语言）
-pip install pyannote.audio   # 声纹分离（可选，需 HF Token）
+PIP_MIRROR=https://mirrors.aliyun.com/pypi/simple
 
-# 自动下载依赖（模型文件）
-pip install modelscope       # 如需手动触发魔搭下载
+# 本地 ASR（推荐，模型从魔搭社区国内直连下载）
+pip install -i $PIP_MIRROR funasr modelscope
 ```
 
-## HuggingFace 镜像（仅 faster-whisper / pyannote 需要）
+> ⚠️ **faster-whisper / pyannote.audio 已移出默认安装**（不推荐、可省）：
+> - faster-whisper 模型 ~3GB 且中文一般，SenseVoice 已够用；
+> - pyannote.audio 声纹分离需 HF Token，说话人改由 LLM 语义切分（免 Token）。
+> 若确有需要：`pip install -i $PIP_MIRROR faster-whisper pyannote.audio`
+
+## HuggingFace 镜像（faster-whisper / pyannote 已移出默认，仅高级用户需）
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com   # 国内镜像（脚本默认已设置）
@@ -43,7 +52,7 @@ python -c "from modelscope import snapshot_download; snapshot_download('iic/spee
 
 **faster-whisper（HuggingFace，需镜像）：**
 ```bash
-pip install -U huggingface_hub
+pip install -i $PIP_MIRROR -U huggingface_hub
 export HF_ENDPOINT=https://hf-mirror.com
 huggingface-cli download Systran/faster-whisper-large-v3 --local-dir ./whisper-large-v3
 # 或浏览器打开 https://hf-mirror.com/Systran/faster-whisper-large-v3 手动下载
