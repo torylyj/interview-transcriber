@@ -189,6 +189,9 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 日期 | 内容 |
 |------|------|
+| 2026-07-13 | **经验固化（踩坑清单 gotchas.md）**：将本次真实环境（Win+Py3.13无编译器+RTX4070+钉钉dws）跑通全流程踩的坑全部写进 `references/gotchas.md` 并同步 SKILL.md：① 修正两处与事实不符旧陈述（"sentence_timestamp 精确到秒"→实为插值估算、段落边界才精确；"启发式可直接用"→须 LLM 复核）；② 钉钉硬性规则（图片须 `dws doc media insert` 上传、同主题 `overwrite` 勿新建、`auth status` 卡顿、未经授权不发消息）；③ `build_document.py --auto-speakers` 加"不可直接交付、须 LLM 复核"告警 |
+| 2026-07-13 | **长轮次自动分段**：`build_document.py` 将长独白按 ~160 字/4 句切成多段（每段带时间码），`.docx` 与在线文档均逐段呈现，根治"一大块难读" |
+| 2026-07-13 | **GPU 自动检测 + 标准 build_document.py**：`setup_env.py` 检测到 NVIDIA 即装 CUDA 版 torch（本地模型仍默认）；新增标准 `build_document.py` 消费结构化 `segments`，根除手写 `<|withitn|>` 切分导致段丢失的 bug |
 | 2026-07-13 | **人物信息条件化（无则省略／多人多表）**：输出结构 `person_info` 升级为支持多人（`[{name, fields}]`）；短视频未提个人信息时整段省略，多位受访人各渲染独立表格；同步更新 `build_docx.py` 渲染逻辑与 `prompts.md` 提取指令 |
 | 2026-07-13 | **健壮性加固（超时看门狗 + 环境自检防漏装）**：`transcribe_local.py`/`call_qwen.py` 加 `with_timeout` 硬超时看门狗（模型加载 600s / 单段 ASR 900s / LLM 调用 180s，超时 `os._exit` 快速失败），根治"转着转着就没声了"的卡死；`setup_env.py` 改为逐包安装 + 新增 `verify_environment()` 真实 import 自检（装完强制复查，缺包给出精准修复命令）；SKILL.md 新增「长耗时步骤执行要点」与 Step 0 首次安装 review 流程 |
 | 2026-07-11 | **静帧抽取优化（五等分，不软解整段）**：`extract_frame.py` 改为将视频严格**五等分**、从每段中心各抽 1 帧（默认 5 帧）按清晰度比选最清晰帧，采用 ffmpeg 输入定位（`-ss` 在 `-i` 前）只解码目标点附近极少帧，彻底避免软解整段视频的性能消耗；同步 SKILL.md / segment_commands 说明；并移除此前误加入仓库的可视化预览页 `docs/interview-transcriber.html` |

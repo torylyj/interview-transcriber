@@ -300,8 +300,10 @@ def main():
         doc = assemble_document(data, conversation)
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(doc, f, ensure_ascii=False, indent=2)
-        print(f"\n✅ document.json 已写出（启发式分角色，summary/person_info 待 Agent 填）: {args.output}")
+        print(f"\n⚠️ document.json 已写出（启发式初分角色，summary/person_info 待 Agent 填）: {args.output}")
         print(f"   共 {len(conversation)} 个对话轮次")
+        print("   ⚠️ 警告：启发式初分严重失真（实测把受访人独白里的'好/哪里'误判为采访者 20+ 处），")
+        print("      此输出【不可直接作为最终交付】！必须运行 --review 经 LLM 语义复核修正 conversation[].speaker 后再定稿。")
         return
 
     print("用法：")

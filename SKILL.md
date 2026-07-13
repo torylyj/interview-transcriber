@@ -48,6 +48,17 @@ agent_created: true
 - **部分结果已落盘**：`transcribe_local.py` 每处理完一段就写 `<标题>_transcript.partial.json`，即使中途中断也有部分内容可交付 / 续跑。
 - 用户感知：启动长步骤前一句「正在转录，约需 X 分钟，我后台跑着、好了告诉你」比「稍等片刻」更不容易让用户以为卡死。
 
+## ⚠️ 踩坑与硬性规则（必读）
+
+本技能在真实环境（Windows + 托管 Python 3.13 无 C++ 编译器 + RTX 4070 GPU + 钉钉 dws）跑通过，以下坑都是实测踩出来的。完整清单与对策见 **references/gotchas.md**（强烈建议改动技能或首次跑长任务前通读）。几条最高频、最致命的硬性规则：
+
+- **说话人绝不能直接用启发式输出交付**：`build_document.py --auto-speakers` 初分严重失真（把受访人独白里的「好/哪里」误判为采访者，实测 20+ 处），**必须经 LLM 语义复核（方式 A）修正后才算最终**。
+- **本地时间码是插值估算，不是精确到秒**：SenseVoice 的 `sentence_timestamp` 对该模型不生效，每段仍是整块；逐句时间码由「标点切句 + 各段偏移/时长线性插值」得到——段内为估算值、段落边界才精确。
+- **钉钉在线文档无法渲染本地图片路径**：`H:/...jpg` 不显示，必须用 `dws doc media insert` 把图真正上传插入。
+- **钉钉 `dws auth status` 会卡 2 分钟**：别依赖它，直接试业务命令（doc search/create/send 正常即已登录）。
+- **同主题二改三改用 overwrite，不要新建**：用户约定「只保留一个在线文档」；修订同一采访用 `dws doc update --mode overwrite`，勿再 `doc create`。
+- **未经明确授权不发钉钉消息**：覆盖文档（overwrite）无需每次问，但 `chat message send` 必须用户明确同意。
+
 ## 工作流程
 
 ### Step 0: 环境准备与首次安装 review（必须，避免组件漏装）
@@ -139,8 +150,8 @@ python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.j
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --auto-speakers
 ```
 
-- 脚本消费 `transcript.json` 的 `segments`（逐句、含绝对时间码；本地 SenseVoice 已开 `sentence_timestamp`，精确到秒），无需再解析 `raw_text`。
-- 说话人角色：默认启发式初分（问句/短插话判为采访者），Agent 经 `--review` 复核后在 `document.json` 的 `conversation[].speaker` 直接修正（采访者/受访人/记者乙…）。
+- 脚本消费 `transcript.json` 的 `segments`（每段一块连续文本，SenseVoice 默认整段一块、无句分隔）。⚠️ 注意：本地 SenseVoice 的 `sentence_timestamp` **对该模型不生效**（每段仍整块），逐句时间码由本脚本「按标点切句 + 各段偏移/时长线性插值」得到——**段内为估算值，段落边界才精确，勿标「精确到秒」**。无需再解析 `raw_text`。
+- 说话人角色：默认启发式初分（问句/短插话判为采访者）**仅作初分**；Agent 必须经 `--review` 逐句复核后在 `document.json` 的 `conversation[].speaker` 直接修正（采访者/受访人/记者乙…）。⚠️ **`--auto-speakers` 的直接输出绝不可作为最终交付**（启发式在本批实测中误判 20+ 处，严重失真），必须经 LLM 语义复核。
 - 随后 Agent 把 Step 3.6 的 `summary` 与 `person_info` 写入同一 `document.json`（无信息则 `person_info: []` 整段省略；多人多表）。
 - 也可 `import` 本脚本的 `parse_sentences / assign_roles / assemble_document` 在 Agent 代码里直接调用。
 - **长轮次自动分段**：`group_turns` 会把长独白（如受访人一口气讲 1000+ 字）按 ~160 字或 4 句切成多段，每段带首句时间码；`build_docx.py` 的 `.docx` 与 Markdown 均逐段输出，避免一大块难读。
@@ -163,6 +174,12 @@ python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "
 ### Step 4: 输出与分发
 
 本地 `.docx` 始终生成。可选分发：钉钉/飞书/腾讯文档（用 `build_docx.py --export-md` 生成临时 `_upload.md` 上传后即删）/ 本地文件 / 直接粘贴。上传失败保留本地 `.docx` 兜底。
+
+**钉钉分发硬性规则（详见 references/gotchas.md §3）：**
+- **图片必须用 `dws doc media insert` 上传**：在线文档 Markdown **不渲染本地路径**（如 `H:/.../人物静帧.jpg`），直接写进去不显示。正确做法：① 导出上传用 `_upload.md` 时**先剥离本地图片行**；② 用 `dws doc media insert --node <nodeId> --file <本地图> --index 0` 把图真正上传插入（三步：取上传凭证→传 OSS→插块）。原 `.docx` 才保留本地图。
+- **同主题 reuse 用 overwrite，勿新建**：用户约定「只保留一个在线文档，不要新增冗余文件」。新采访才 `dws doc create`；修订同一采访用 `dws doc update --mode overwrite`（配合 `--content-file`）。
+- **`dws auth status` 会卡 ~2 分钟**：别用它判断登录态（已知 OAuth 身份「李焱杰」），直接试探 `doc search/create/send` 等**业务命令**，正常即已登录。
+- **未经明确授权不发消息**：`dws doc update/overwrite` 无需每次问；但 `dws chat message send` **必须用户明确同意**才执行。用户说「不要发给 XX」时，本次及后续都不再发。
 
 ### Step 5: 清理临时文件
 
@@ -217,6 +234,6 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments
 - **全程无需 HuggingFace**：说话人走 LLM 语义切分，模型仅 SenseVoice/Paraformer（魔搭直连）；已移出 faster-whisper / pyannote
 - Windows 路径用正斜杠（`C:/...` 或相对路径，勿用 Git Bash 的 `/c/...` 写法，脚本已自动兼容转换）；`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）
 - **长文本 LLM 分段**：单次输入 ≤ 8000 字符，超长分段后合并
-- **时间码精度**：本地精确到秒；云端段内为估算值（4 分钟粒度），文档已标注，勿当精确时间
+- **时间码精度**：本地段内为插值估算（段落边界精确）；云端段内为估算值（4 分钟粒度）；文档已如实标注，勿当精确时间
 - **收尾必须主动询问交付位置**（Step 6），未经确认不上传外部平台
 - **最终交付 .docx，全程无 Markdown 中间文件**：转录脚本输出 `_transcript.json`，Agent 写 `_document.json`，`build_docx.py` 直接生成 .docx
