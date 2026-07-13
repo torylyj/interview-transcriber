@@ -30,7 +30,7 @@
 |------|------|
 | 🎞️ 输入预处理 | 视频：提取**最清晰静帧** + 转 MP3；音频：直接用作音频（跳过转 MP3、无静帧） |
 | 🧩 多段合并 | 一个采访拆成多个文件？明确告知后自动合并转录为一篇文档 |
-| ☁️ 云端转录 | Qwen3-ASR-Flash（可选升级，准确率最高），需 DashScope API Key |
+| ☁️ 云端转录 | Qwen3-ASR-Flash（可选方式，需 DashScope API Key） |
 | 💻 本地转录 | **默认** SenseVoice / Paraformer（魔搭社区，中文优秀，离线可用） |
 | ⏱️ 对话时间码 | 每轮对话标注 `[MM:SS]`，精准定位视频位置 |
 | 🗣️ 说话人识别 | LLM 语义分析，自动区分「采访者 / 受访人 / 其他角色」（支持多说话人） |
@@ -81,7 +81,7 @@ https://github.com/torylyj/interview-transcriber
 
 Agent 收到后会自动执行完整流程，**默认使用本地转录（SenseVoice，离线可用、无需任何配置）**，不会打断你提问。
 
-- 如果想要**更高的识别准确率**，随时告诉 Agent「用云端转录」（需 DashScope API Key），它会切换为 Qwen3-ASR-Flash。
+- 如果想用**云端转录**，随时告诉 Agent「用云端转录」（需 DashScope API Key），它会切换为 Qwen3-ASR-Flash。
 - 如果**一个采访被拆成了多段视频/音频**，只需在开头说明「这 N 个文件是同一段采访」，Agent 会自动合并转录成一篇文档。
 
 ### 常见用法示例
@@ -97,14 +97,14 @@ Agent 收到后会自动执行完整流程，**默认使用本地转录（SenseV
 
 ### 首次使用准备（仅云端需要）
 
-**云端转录**（推荐，准确率最高）需要配置 DashScope API Key：
+**云端转录**需要配置 DashScope API Key：
 
 ```bash
 # 获取地址：https://bailian.console.aliyun.com/?tab=model#/api-key
 export DASHSCOPE_API_KEY="sk-your-key-here"
 ```
 
-> 💡 **提示**：默认本地转录（SenseVoice，离线可用、无需配置）；若需更高准确率可切云端 Qwen3-ASR-Flash（需 DashScope API Key，费用极低）。
+> 💡 **提示**：默认本地转录（SenseVoice，离线可用、无需配置）；如想用云端也可切 Qwen3-ASR-Flash（需 DashScope API Key）。
 
 ---
 
@@ -136,7 +136,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 - **本机「首次≈后续」**：因为模型已缓存在本地，首次不再有下载开销。技能里的「首次转录会下载模型」提醒只对**全新机器第一次跑**才生效。
 - **全新机器首次**（换电脑）：本地模式额外加 ①pip 装依赖 ~1–2 分钟（国内镜像）+ ②SenseVoice 模型下载 ~1–3 分钟（魔搭国内直连），即首次 **6–12 分钟**；云端模式永远不需要下载模型。
-- **本地 vs 云端速度相当**（都 4–8 分钟），差异在**质量**：云端中文准确率更高，本地 SenseVoice 已够用且完全离线。
+- **本地与云端耗时相当**（都约 4–8 分钟）；本地完全离线、无需 Key，云端需联网与 Key，两种方式都能满足常规转录需求。
 
 ---
 
@@ -155,7 +155,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | 系统 | Windows 10/11、Linux、macOS | 脚本用正斜杠，跨平台 |
 | **20 分钟视频耗时** | **约 20–60 分钟** | CPU 约 0.3–1x 实时 |
 
-### 带 NVIDIA 显卡（推荐，速度追平云端）
+### 带 NVIDIA 显卡（GPU 加速）
 
 | 项 | 最低要求 | 说明 |
 |----|---------|------|
@@ -166,7 +166,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 > ⚠️ **硬性约束：**
 > 1. 必须是 **NVIDIA 显卡** 才能用已装的 CUDA 版 torch；AMD / Intel 核显无法用 CUDA，只能退回 CPU。
-> 2. **说话人识别强依赖联网 + DashScope API Key**：本地 ASR 本身能离线，但角色切分是调 qwen-plus 做的。
+> 2. **说话人识别由 LLM 语义切分**：本地/云端统一走 LLM（Agent 自身或 qwen-plus），无需额外 Key，支持多说话人。
 > 3. **ffmpeg 必需**（视频抽静帧、提取音频），独立下载项，不算在 Python 环境里。
 > 4. **首次需联网**：下载模型（~500MB，魔搭国内直连）+ pip 依赖；之后可完全离线跑 ASR。
 
@@ -177,7 +177,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 - **文档命名规范**：`拍摄时间+人物简介`，如 `26-0509 车辆学院直博生`（人物简介 ≤10 字）。
 - **多段采访合并**：必须**明确告知哪几个文件属于同一段采访**，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。
 - **智能静帧**：由 `scripts/extract_frame.py` 将视频**五等分、各抽 1 帧**并按清晰度比选最清晰的一张（输入定位，不软解整段视频，避免黑屏/字幕遮挡帧）。
-- **默认本地转录**：默认 SenseVoice 离线可用、无需配置；仅当需要更高准确率或提供 DashScope API Key 时才切云端。
+- **默认本地转录**：默认 SenseVoice 离线可用、无需配置；仅当用户明确要求用云端或提供 DashScope API Key 时才切。
 - **时间码精度**：本地为句级插值估算（段落边界精确，段内为估算值）；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
 - **Windows 路径**：使用正斜杠 `/`，避免中文路径传给 API。
 - **长文本处理**：LLM 单次输入建议不超过 8000 字符，超长需分段。
@@ -189,30 +189,32 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v1.5.1 | 2026-07-14 | **更新日志细化版本号**：按提交历史为每项独立更新编唯一版本，不再多个更新共用同一版本号 |
 | v1.5.0 | 2026-07-14 | **安装幂等化（杜绝重复下载）**：`setup_env.py` 安装前用 `is_importable()` 真实 import 探测；Python 依赖已装即跳过（`--force` 可强制重装）；`install_torch` 已装且版本匹配（要 GPU 且有 CUDA / 要 CPU 有 torch）也跳过，根治「2.7GB CUDA torch 每次运行都重复下载」；`gotchas.md` 新增坑 1.3 作回归护栏。commit `f3bc742` |
-| v1.4.0 | 2026-07-13 | **PM 视角整改（去个人化 + 闭环工具化）**：① 删掉钉钉个人身份/收件人等"错误案例"，分发规则泛化为通用最佳实践（修订复用同一文档、未经授权不发消息等保留为安全规则）；② 修 P0 事实矛盾——`output_schema.md` 不再写"本地模式精确到秒"，与 `build_docx.py`/`gotchas` 一致为"句级插值估算、段落边界精确"；③ 补上说话人识别工具断点：`build_document.py` 新增 `--apply corrections.json`，Agent（方式 A）复核后一键落盘最终 `document.json`，不再手改嵌套 JSON；④ `build_docx.py` 新增 `--no-frame`，在线导出 Markdown 不再写入打不开的本地图路径；⑤ 新增 `prepare.py` 一键生成 `transcribe_config.json`（自动识别类型/抽静帧/转码/切段），消除手写 JSON 胶水；⑥ 诚实化定位：display_name 去"秒变"、描述与 Step 2.5 主动交代首跑需下载模型（GPU 版约 2.7GB）及本地/云端取舍；`setup_env.py` 下载前打印体积预警；⑦ Step 5 清理保留 `_document.json`（可编辑事实源，修订 overwrite 时复用，无需重跑转录）；⑧ `transcribe_local.py` 元数据不再把本地模式误标为 qwen-plus；`prompts.md` 云端 方法A 与"仅段级时间戳"的实际输出对齐 |
-| v1.4.0 | 2026-07-13 | **长轮次自动分段**：`build_document.py` 将长独白按 ~160 字/4 句切成多段（每段带时间码），`.docx` 与在线文档均逐段呈现，根治"一大块难读" |
-| v1.4.0 | 2026-07-13 | **GPU 自动检测 + 标准 build_document.py**：`setup_env.py` 检测到 NVIDIA 即装 CUDA 版 torch（本地模型仍默认）；新增标准 `build_document.py` 消费结构化 `segments`，根除手写 `<|withitn|>` 切分导致段丢失的 bug |
-| v1.4.0 | 2026-07-13 | **人物信息条件化（无则省略／多人多表）**：输出结构 `person_info` 升级为支持多人（`[{name, fields}]`）；短视频未提个人信息时整段省略，多位受访人各渲染独立表格；同步更新 `build_docx.py` 渲染逻辑与 `prompts.md` 提取指令 |
-| v1.4.0 | 2026-07-13 | **健壮性加固（超时看门狗 + 环境自检防漏装）**：`transcribe_local.py`/`call_qwen.py` 加 `with_timeout` 硬超时看门狗（模型加载 600s / 单段 ASR 900s / LLM 调用 180s，超时 `os._exit` 快速失败），根治"转着转着就没声了"的卡死；`setup_env.py` 改为逐包安装 + 新增 `verify_environment()` 真实 import 自检（装完强制复查，缺包给出精准修复命令）；SKILL.md 新增「长耗时步骤执行要点」与 Step 0 首次安装 review 流程 |
-| v1.3.0 | 2026-07-11 | **静帧抽取优化（五等分，不软解整段）**：`extract_frame.py` 改为将视频严格**五等分**、从每段中心各抽 1 帧（默认 5 帧）按清晰度比选最清晰帧，采用 ffmpeg 输入定位（`-ss` 在 `-i` 前）只解码目标点附近极少帧，彻底避免软解整段视频的性能消耗；同步 SKILL.md / segment_commands 说明；并移除此前误加入仓库的可视化预览页 `docs/interview-transcriber.html` |
-| v1.3.0 | 2026-07-11 | **补充文档：性能预估 + 最低硬件配置**：新增「⏱️ 性能预估」（20 分钟视频，本地 GPU/CPU 与云端耗时对比，本机首次≈后续≈4–8 分钟）与「💻 最低硬件配置」（纯 CPU 8GB 内存即可跑、20 分钟约 20–60 分钟；带 NVIDIA 4GB 显存显卡约 2–4 分钟）；并梳理修正若干表述（「首次使用准备」提示改为默认本地、SKILL.md 重复文本与模型下载体积范围） |
-| v1.3.0 | 2026-07-11 | **精简依赖（默认仅 5 包）**：移出 faster-whisper（~3GB，中文一般）与 pyannote.audio（声纹分离，需 HF Token）；说话人统一改由 LLM 语义切分（免 Token）；`setup_env.py`/`requirements.txt` 默认仅装 funasr/modelscope/python-docx/pillow/dashscope，新增 `--extras` 可选项；所有外网下载改国内镜像（阿里云 PyPI / npmmirror 二进制 / 魔搭 / hf-mirror.com），ffmpeg 走 npmmirror 静态构建 |
-| v1.2.0 | 2026-07-10 | **产品经理视角优化（P1–P9/P11 + 多段合并 + SKILL 瘦身）**：①新增多段采访合并说明（用户需明确告知哪些文件属同一采访，自动合并转录）；②P8 静帧改为 `extract_frame.py` 均匀采样多帧按清晰度比选最清晰帧；③P9 新增 `call_qwen.py` 统一文本任务 DashScope 调用，并补充版本兼容说明；④P11 全流程进度反馈（脚本阶段打印 + 指示 Agent 转述进度）；⑤P7 将 SKILL.md 由 808 行精简至 ~178 行，模型下载/切段命令/Prompt 模板/输出结构/错误处理等细节抽到 `references/`；⑥默认本地转录、云端仅作升级方案 |
-| v1.2.0 | 2026-07-10 | **移除 Markdown 中间文件**：转录脚本直接输出结构化 `_transcript.json`，Agent 完成说话人识别/摘要/自检后写入 `_document.json`，由 `scripts/build_docx.py` 直接生成 .docx；删除 `md_to_docx.py`，全程不再生成任何 .md |
-| v1.2.0 | 2026-07-10 | 最终交付改为 **Word 文档（.docx）**：转录与 LLM 处理后的中间 Markdown 经 `scripts/md_to_docx.py` 转换为 .docx，Step 5 清理时删除中间 .md；新增 Step 3.8 |
-| v1.2.0 | 2026-07-10 | 新增 Step 3.7：文档生成后自检、适度精简口语语气词（不改原意、仅删明显冗余） |
-| v1.2.0 | 2026-07-10 | 切段决策改为模型按能力自动处理，不再询问用户 |
-| v1.2.0 | 2026-07-10 | 支持音频输入（跳过转 MP3、无静帧）；切段决策移至选完转录方式后的 Step 2.6；工作流图增加输入类型分支 |
-| v1.2.0 | 2026-07-10 | 美化 README（hero 标题 + 徽章 + 目录 + 工作流图修正），文档预览同步最新输出格式 |
-| v1.2.0 | 2026-07-10 | 新增 Step 6：全流程完成后主动询问用户交付位置 |
+| v1.4.5 | 2026-07-13 | **PM 视角整改（去个人化 + 闭环工具化）**：① 删掉钉钉个人身份/收件人等"错误案例"，分发规则泛化为通用最佳实践；② 修 P0 事实矛盾——`output_schema.md` 不再写"本地模式精确到秒"，与 `build_docx.py`/`gotchas` 一致为"句级插值估算、段落边界精确"；③ 补说话人识别工具断点：`build_document.py` 新增 `--apply corrections.json`，Agent（方式 A）复核后一键落盘最终 `document.json`；④ `build_docx.py` 新增 `--no-frame`；⑤ 新增 `prepare.py` 一键生成 `transcribe_config.json`；⑥ 诚实化定位：display_name 去"秒变"、描述主动交代首跑下载量与本地/云端取舍；⑦ Step 5 保留 `_document.json`；⑧ `transcribe_local.py` 元数据不再误标 qwen-plus；`prompts.md` 云端方法A 与"仅段级时间戳"对齐 |
+| v1.4.4 | 2026-07-13 | **新增 gotchas 踩坑清单**：`references/gotchas.md` 汇总实测坑（GPU 进程回收、时间码插值、钉钉图不渲染、`dws auth status` 卡 2 分钟、同主题 overwrite 等），并修正 SKILL 旧陈述、补钉钉通用规则、脚本告警 |
+| v1.4.3 | 2026-07-13 | **长轮次自动分段**：`build_document.py` 将长独白按 ~160 字/4 句切成多段（每段带时间码），`.docx` 与在线文档均逐段呈现，根治"一大块难读" |
+| v1.4.2 | 2026-07-13 | **人物信息条件化（无则省略／多人多表）**：`person_info` 升级为支持多人（`[{name, fields}]`）；短视频未提个人信息时整段省略，多位受访人各渲染独立表格；同步更新 `build_docx.py` 渲染与 `prompts.md` 提取指令 |
+| v1.4.1 | 2026-07-13 | **GPU 自动检测 + 标准 build_document.py**：`setup_env.py` 检测到 NVIDIA 即装 CUDA 版 torch（本地模型仍默认）；新增标准 `build_document.py` 消费结构化 `segments`，根除手写 `<|withitn|>` 切分导致段丢失的 bug |
+| v1.4.0 | 2026-07-13 | **健壮性加固（超时看门狗 + 环境自检防漏装）**：`transcribe_local.py`/`call_qwen.py` 加 `with_timeout` 硬超时看门狗（模型加载 600s / 单段 ASR 900s / LLM 调用 180s，超时 `os._exit` 快速失败），根治"转着转着就没声了"的卡死；`setup_env.py` 改为逐包安装 + 新增 `verify_environment()` 真实 import 自检 |
+| v1.3.2 | 2026-07-11 | **静帧抽取优化（五等分，不软解整段）**：`extract_frame.py` 改为将视频严格**五等分**、从每段中心各抽 1 帧按清晰度比选最清晰帧，采用 ffmpeg 输入定位只解码目标点附近极少帧；并移除误入仓库的预览页 `docs/interview-transcriber.html` |
+| v1.3.1 | 2026-07-11 | **补充文档：性能预估 + 最低硬件配置**：新增「⏱️ 性能预估」与「💻 最低硬件配置」，并梳理修正若干表述（默认本地、SKILL 重复文本、模型下载体积范围） |
+| v1.3.0 | 2026-07-11 | **精简依赖（默认仅 5 包）+ 国内镜像连通性修复**：移出 faster-whisper / pyannote，说话人统一 LLM 语义切分；外网下载改国内镜像 |
+| v1.2.8 | 2026-07-10 | **产品经理视角优化（P1–P9/P11 + 多段合并 + SKILL 瘦身）**：新增多段采访合并说明、统一 `call_qwen.py` 调用、全流程进度反馈、SKILL 由 808 行精简至 ~178 行、默认本地转录 |
+| v1.2.7 | 2026-07-10 | **移除 Markdown 中间文件**：转录 → `_transcript.json` → `_document.json` → `.docx` 直出，全程无 .md |
+| v1.2.6 | 2026-07-10 | 最终交付改为 **Word(.docx)**；新增 Step 3.8 |
+| v1.2.5 | 2026-07-10 | 新增 Step 3.7：文档生成后自检、适度精简口语语气词 |
+| v1.2.4 | 2026-07-10 | 切段决策改为模型按能力自动处理，不再询问用户 |
+| v1.2.3 | 2026-07-10 | 支持音频输入（跳过转 MP3、无静帧）；切段决策移至选完转录方式后的 Step 2.6 |
+| v1.2.2 | 2026-07-10 | 美化 README（hero 标题 + 徽章 + 目录 + 工作流图修正），文档预览同步最新输出格式 |
+| v1.2.1 | 2026-07-10 | 新增 Step 6：全流程完成后主动询问用户交付位置 |
 | v1.2.0 | 2026-07-10 | 修正本地转录前置条件说明（SenseVoice 无需 HuggingFace Token） |
-| v1.1.0 | 2026-07-09 | README 新增「使用说明」章节，包含基本用法、输出结果、常见示例和首次准备 |
-| v1.1.0 | 2026-07-09 | 本地转录新增多模型支持：SenseVoice / Paraformer（阿里达摩院中文模型，魔搭社区下载）+ faster-whisper large-v3，替代原 faster-whisper medium |
-| v1.1.0 | 2026-07-09 | 新增 Step 2.5：转录前询问用户选择转录方式，明确告知本地转录质量差异 |
-| v1.1.0 | 2026-07-09 | 新增对话时间码：每轮对话标注 [MM:SS]，云端段级精度，本地为句级插值估算（段落边界精确） |
-| v1.1.0 | 2026-07-09 | 适配多种 AI Agent（Claude Code、Codex 等）；统一使用"采访"表述 |
-| v1.1.0 | 2026-07-09 | 新增 Step 3.6：LLM 生成内容摘要与人物信息，置于文档正文最前面 |
+| v1.1.5 | 2026-07-09 | 新增 Step 3.6：LLM 生成内容摘要与人物信息，置于文档正文最前面 |
+| v1.1.4 | 2026-07-09 | 适配多种 AI Agent（Claude Code、Codex 等）；统一使用"采访"表述 |
+| v1.1.3 | 2026-07-09 | 新增对话时间码：每轮对话标注 [MM:SS]（本地为句级插值估算，段落边界精确） |
+| v1.1.2 | 2026-07-09 | 新增 Step 2.5：转录前询问用户选择转录方式 |
+| v1.1.1 | 2026-07-09 | 本地转录新增多模型支持：SenseVoice / Paraformer（魔搭社区）+ faster-whisper large-v3，替代原 faster-whisper medium |
+| v1.1.0 | 2026-07-09 | README 新增「使用说明」章节（基本用法、输出结果、常见示例、首次准备） |
 | v1.0.0 | 2026-07-01 | 初始版本：完整工作流程（预处理→转录→说话人识别→分发） |
 
 ---

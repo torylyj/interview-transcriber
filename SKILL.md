@@ -2,9 +2,9 @@
 name: interview-transcriber
 display_name: 采访转录成文档
 description: |
-  采访转录全流程处理技能（支持视频与音频输入，也支持「一个采访拆成多段文件」合并转录）。默认本地转录（SenseVoice/Paraformer 魔搭社区中文模型，离线可用、无需 API Key；⚠️ 首次运行需联网下载本地模型 ~500MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）。可选云端转录（Qwen3-ASR-Flash，准确率更高，需 DashScope API Key）。⚠️ 开始前请主动向用户说明两种方式的取舍（本地免费但精度一般且首次慢；云端更准但需 Key），由用户选择，默认本地。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> LLM 智能说话人识别（统一语义切分，免 HuggingFace Token，支持多说话人，时间码为插值估算）-> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
+  采访转录全流程处理技能（支持视频与音频输入，也支持「一个采访拆成多段文件」合并转录）。默认本地转录（SenseVoice/Paraformer 魔搭社区中文模型，离线可用、无需 API Key；⚠️ 首次运行需联网下载本地模型 ~500MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）。可选云端转录（Qwen3-ASR-Flash，需 DashScope API Key）。两种方式为并列可选：本地离线可用、无需 Key、首次需下载模型；云端需联网与 Key。默认本地，用户可随时切换。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> LLM 智能说话人识别（统一语义切分，免 HuggingFace Token，支持多说话人，时间码为插值估算）-> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
   若用户把一个采访拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段采访，技能自动合并转录为一篇文档。
-  适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后主动询问用户交付位置，并提示云端转录作为更高精度的可选方案。
+  适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后主动询问用户交付位置，并说明还有云端转录这一可选方式（需 DashScope API Key）。
 agent_created: true
 ---
 
@@ -12,9 +12,9 @@ agent_created: true
 
 ## 概述
 
-将采访内容（视频或音频，也可是一段采访被拆成的多个文件）全流程处理为带说话人识别的转录文档。核心流程始终执行：输入预处理 → 默认本地转录（SenseVoice，离线可用）→ 模型按能力自动决定是否切段 → 说话人识别（支持多说话人）→ 生成摘要与人物信息 → 直接生成 Word 文档（.docx）→ 自检精简语气词 → 交付前预览确认 → 可选分发。全部完成后主动询问用户交付位置，并提示云端转录作为更高精度可选方案。
+将采访内容（视频或音频，也可是一段采访被拆成的多个文件）全流程处理为带说话人识别的转录文档。核心流程始终执行：输入预处理 → 默认本地转录（SenseVoice，离线可用）→ 模型按能力自动决定是否切段 → 说话人识别（支持多说话人）→ 生成摘要与人物信息 → 直接生成 Word 文档（.docx）→ 自检精简语气词 → 交付前预览确认 → 可选分发。全部完成后主动询问用户交付位置，并说明还有云端转录这一可选方式（需 DashScope API Key）。
 
-**转录方式（默认本地）：** 默认本地转录（SenseVoice，从魔搭社区下载，无需 API Key，离线可用）；仅当用户明确要求更高准确率或提供 DashScope API Key 时才切换云端 Qwen3-ASR-Flash。详见 references/model_download.md。
+**转录方式（默认本地）：** 默认本地转录（SenseVoice，从魔搭社区下载，无需 API Key，离线可用）；仅当用户明确要求用云端、或提供 DashScope API Key 时才切换 Qwen3-ASR-Flash。详见 references/model_download.md。
 
 **多段采访（重要）：** 若用户把一个采访拆成了多个视频/音频文件，必须请用户**明确告知哪几个文件属于同一段采访**，技能会合并转录为一篇文档。详见文末「多段采访输入说明」。
 
@@ -105,7 +105,7 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 默认本地（`mode: "local"`，SenseVoice），**不打断询问**。仅当用户明确要求云端/提供 Key，或要求其他本地模型时才切换。
 
-> ⚠️ **开始前一句话交代取舍**（避免用户误以为卡死/误判质量）：本地免费、离线、但首次需下载模型（SenseVoice ~500MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）且精度一般；云端 Qwen3-ASR-Flash 更准但需 DashScope API Key。用户未指定则按本地执行，但建议主动提一句「如需更高准确率可随时切云端」。
+> ⚠️ **开始前一句话交代取舍**（避免用户误以为卡死）：本地离线可用、无需 Key，但首次需联网下载模型（SenseVoice ~500MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）；云端需联网与 DashScope API Key。两种方式都能满足常规转录需求，默认本地，用户可随时切换。
 
 配置 `transcribe_config.json`（也可先用 `python <skill_dir>/scripts/prepare.py <输入>` 一键生成：自动识别类型、抽静帧、转 MP3、按模型能力切段、写入 config）：
 
@@ -124,7 +124,7 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 > `<skill_dir>` 为本技能目录。
 
-**3A. 云端（可选升级）**：`python <skill_dir>/scripts/transcribe_qwen.py --config transcribe_config.json` — 逐段调用 qwen3-asr-flash，生成 `<标题>_transcript.json`（含 metadata + `raw_text`，无 Markdown）。
+**3A. 云端（可选方式）**：`python <skill_dir>/scripts/transcribe_qwen.py --config transcribe_config.json` — 逐段调用 qwen3-asr-flash，生成 `<标题>_transcript.json`（含 metadata + `raw_text`，无 Markdown）。
 
 **3B. 本地（默认）**：`python <skill_dir>/scripts/transcribe_local.py --config transcribe_config.json [--model sensevoice]` — 逐段 ASR，生成 `<标题>_transcript.json`（统一标 `SPEAKER_00`，说话人由 Step 3.5 LLM 语义切分）。依赖安装见 references/model_download.md。
 
@@ -199,7 +199,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json
 
 ### Step 6: 询问交付位置（收尾）
 
-全部完成后主动询问用户发哪里，再分发；未经确认不上传外部平台。话术附云端提示：「本次本地转录；如需更高准确率可改用云端 Qwen3-ASR-Flash（需 DashScope API Key，随时告诉我即可切换）。」
+全部完成后主动询问用户发哪里，再分发；未经确认不上传外部平台。如用户问起，也可说明：本次使用本地转录；若想改用云端 Qwen3-ASR-Flash（需 DashScope API Key）也可随时切换。
 
 ## 多段采访输入说明（重要）
 
@@ -214,7 +214,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json
 ## 说话人识别说明
 
 - ❌ 启发式方法（关键词+段落长度）：已废弃，完全不可靠。
-- ✅ 云端模式：Qwen3-ASR-Flash 转录 + LLM 语义切分（准确率 95%+，支持多说话人）。
+- ✅ 云端模式：Qwen3-ASR-Flash 转录 + LLM 语义切分（支持多说话人）。
 - ✅ 本地模式：LLM 语义切分（免 HF Token，支持多说话人：采访者/受访人/记者乙/旁白等）。
 - Qwen3-ASR-Flash 不直接支持说话人分离；云端最优方案为「转录 + LLM 语义分段」。
 
@@ -235,7 +235,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json
 - **多段采访需用户明确说明归属**，才合并为一篇文档；未说明则各成一篇
 - **说话人识别必须用 LLM**（启发式已废弃）；prompt 必须强调「每轮问答独立成段，不要合并同一说话人多轮」
 - **DashScope 调用统一**：音频转录用 `MultiModalConversation.call(model="qwen3-asr-flash")`；文本任务（说话人/摘要）用 `scripts/call_qwen.py`（`Generation.call`, qwen-plus）。务必 `pip install -U dashscope`，勿用已变更的 `Transcription.call`（版本兼容见 references/dashscope_setup.md）
-- **默认本地转录**，不强制询问；仅用户要求更高准确率或提供 Key 时切云端
+- **默认本地转录**，不强制询问；仅用户明确要求用云端或提供 Key 时切
 - **GPU 加速（本地仍默认）**：`setup_env.py` 检测到 NVIDIA GPU 会自动装 CUDA 版 torch，本地 SenseVoice/Paraformer 推理走 GPU（RTX 40 系约数倍提速）；无 GPU 则装 CPU 版。无论哪种，**默认仍是本地模型推理**，不切换云端
 - **输入类型自动识别**：视频才提取静帧+转 MP3；音频跳过且 `frame_path=null` 不输出静帧
 - **切段决策在选方式之后、模型自动**：云端 >5 分钟必切，本地 >20 分钟建议切，均不询问
