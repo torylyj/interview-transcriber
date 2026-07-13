@@ -30,10 +30,10 @@
 
 ## 2. SenseVoice 转录本身
 
-### 坑 2.1：sentence_timestamp 对 SenseVoice 不生效
+### 坑 2.1：sentence_timestamp 仅对 SenseVoice 不生效（Paraformer-VAD 不受限）
 - **现象**：传 `sentence_timestamp=True`，SenseVoice 每段仍只产出 1 个整块文本（`<|withitn|>` 只是语言/itn 标签，不是句分隔），`segments` 字段只有 3 个大块、时间码全 0。
 - **对策（已固化进 build_document.py）**：按中文标点把每段切成句子，再依「各段 offset + 时长（来自 transcribe_config.json 的 segments 与音频文件）线性插值」得到逐句时间码。
-- ⚠️ **硬性规则**：本地逐句时间码是**插值估算**，不是逐字对齐；**段落级边界精确，段内为估算值**。文档已如实标注「段内为插值估算」，**不得标「精确到秒」**。（SKILL.md / build_docx.py 均已修正，勿回退。）
+- ⚠️ **硬性规则**：**仅 SenseVoice** 的逐句时间码是**插值估算**（Paraformer-VAD 返回真实句级 sentence_info，无需插值）；无论哪种，**段落级边界精确，段内为估算值**。文档已如实标注，SenseVoice 路径**不得标「精确到秒」**。（SKILL.md / build_docx.py 均已修正，勿回退。）
 
 ### 坑 2.2：`<|withitn|>` 当段间分隔切分 → 段丢失
 - **现象**：临时脚本把 `<|withitn|>` 当「段之间分隔」去 split，导致段 1 整段丢失、段 3 丢失、时间码错乱。

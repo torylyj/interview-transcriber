@@ -1,11 +1,13 @@
 """
 本地转录脚本 — 阿里达摩院中文模型（魔搭社区国内直连）
 
-支持两种本地转录引擎，按中文识别质量从高到低：
-  1. SenseVoice (FunASR/阿里达摩院) — 中文最优，魔搭社区下载，无需 HuggingFace
-  2. Paraformer (FunASR/阿里达摩院) — 中文优秀，魔搭社区下载，无需 HuggingFace
+支持两种本地转录引擎（魔搭社区国内直连，无需 HuggingFace）：
+  - Paraformer-large（默认）：中文高精度，尤其嘈杂/口音场景更稳；
+    自带 FSMN-VAD，返回真实句级时间码（sentence_info），无需插值估算。
+  - SenseVoice-small（可选轻量项）：更快、体积小（~500MB）、支持多语言
+    与情感/事件标签；中文精度略逊于 Paraformer-large，时间码需插值估算。
 
-说话人分离：统一在 Step 3.5 用 LLM 语义切分（qwen-plus），
+说话人分离：统一在 Step 3.5 用 LLM 语义切分（Agent 方式 A，免 API Key），
 不再依赖 pyannote.audio 声纹分离，免去 HuggingFace Token 与额外模型下载。
 
 用法: python transcribe_local.py --config config.json [--model sensevoice|paraformer]
@@ -59,8 +61,8 @@ MODEL_CONFIGS = {
         "source": "ModelScope 魔搭社区",
         "source_url": "https://modelscope.cn/models/iic/SenseVoiceSmall",
         "size": "~500MB",
-        "quality": "⭐⭐⭐⭐ (中文优秀，接近云端)",
-        "description": "阿里达摩院 SenseVoice，专为中文优化，支持多语言/情感识别",
+        "quality": "⭐⭐⭐⭐ (快/轻量/多语言+情感)",
+        "description": "阿里达摩院 SenseVoice-small：更快、体积小、支持中/英/日/韩/粤与情感/事件标签；中文精度略逊 Paraformer-large，时间码需插值",
         "funasr_model": "iic/SenseVoiceSmall",
         "needs_hf": False,
     },
@@ -69,8 +71,8 @@ MODEL_CONFIGS = {
         "source": "ModelScope 魔搭社区",
         "source_url": "https://modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
         "size": "~800MB",
-        "quality": "⭐⭐⭐⭐ (中文优秀)",
-        "description": "阿里达摩院 Paraformer，中文大规模预训练，自带 VAD + 标点恢复",
+        "quality": "⭐⭐⭐⭐⭐ (中文最高，尤其嘈杂/口音)",
+        "description": "阿里达摩院 Paraformer-large：中文大规模预训练，自带 FSMN-VAD（返回真实句级时间码）+ 标点恢复，嘈杂/口音场景更稳",
         "funasr_model": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
         "funasr_vad": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
         "funasr_punc": "iic/punc_ct-transformer_cn-en-common-vocab471067-large",
@@ -262,7 +264,7 @@ def main():
         "--model",
         default=None,
         choices=["sensevoice", "paraformer"],
-        help="转录模型: sensevoice (推荐) | paraformer",
+        help="转录模型: paraformer (默认,高精度) | sensevoice (轻量可选)",
     )
 
     args = parser.parse_args()
@@ -277,7 +279,7 @@ def main():
     segments = config.get("segments", [])
 
     # 确定模型
-    model_key = args.model or config.get("model", "sensevoice")
+    model_key = args.model or config.get("model", "paraformer")
     if model_key not in MODEL_CONFIGS:
         print(f"错误: 未知模型 '{model_key}'，可选: {', '.join(MODEL_CONFIGS.keys())}")
         sys.exit(1)

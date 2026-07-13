@@ -2,18 +2,21 @@
 build_document.py — 结构化文档组装器（Step 3.5/3.6/3.7 的本地标准实现）
 
 输入：transcribe_local.py 产出的 `<标题>_transcript.json`
-      （含 `segments`：每段 {speaker, text, start, end}，SenseVoice 默认整段一块，
-        句间仅有语言标签 <|withitn|> 而非句分隔）
+      （含 `segments`：Paraformer-VAD 返回真实句级 {start,end}；
+        SenseVoice 则返回整段一块、start/end 均为 0，需插值估算）
 输出：`<标题>_document.json`（供 build_docx.py 直接渲染为 .docx）
 
 为什么需要它（2026-07-13 复盘）：
   - 之前在临时脚本里手写切分，把 SenseVoice 的 <|withitn|> 当"段间分隔"切，
     导致段 1 整段丢失、段 3 丢失、时间码错乱。本脚本直接消费 transcript.json
     的结构化 segments，彻底绕开脆弱的文本正则切分。
-  - 本地 SenseVoice 不返回逐句时间码（sentence_timestamp 对该模型不生效），
-    故本脚本：① 按中文标点把每段切成句子；② 依各段偏移 + 时长（来自
-    transcribe_config.json 的 segments 与音频文件）线性插值得到逐句时间码。
-    （句级时间码为插值估算，非逐字对齐；段落级边界精确。）
+      - 时间码处理分两路：
+          ① Paraformer-VAD 路径：transcript.json 的 segments 已带真实句级
+             start/end（来自 sentence_info），本脚本直接在其真实跨度内按从句占比
+             插值，精确到句；
+          ② SenseVoice 路径：sentence_timestamp 对该模型不生效，每段整块、
+             start/end 均为 0，故按「各段 offset + 时长（ffprobe）」整段线性插值
+             （段内为估算值，段落边界才精确，勿标「精确到秒」）。
   - 说话人分离：本地模型不区分说话人，统一标 SPEAKER_00。本脚本提供
     「启发式初分 + Agent 复核」两阶段：
       1) 默认按问句特征把明显提问/插话判为「采访者」，其余为「受访人」；
@@ -115,21 +118,32 @@ def parse_sentences(data: dict, config_segs: list = None) -> list:
         text = clean_text(s.get("text", ""))
         if not text:
             continue
-        # 该段偏移与时长
-        offset = 0.0
-        duration = 0.0
-        if config_segs and i < len(config_segs):
-            c = config_segs[i]
-            offset = float(c.get("offset", 0) or 0)
-            fpath = c.get("file", "")
-            duration = seg_duration(fpath) if fpath else 0.0
+        seg_start = float(s.get("start", 0) or 0)
+        seg_end = float(s.get("end", 0) or 0)
+        if seg_end > seg_start:
+            # 真实时间码（Paraformer + VAD 返回句级 sentence_info）：
+            # 直接以该句真实跨度内按从句占比插值，精确到句。
+            span_start, span_end = seg_start, seg_end
+        else:
+            # 无时间码（SenseVoice 整段一块，start/end 均为 0）：
+            # 回退到「各段 offset + 音频时长（ffprobe）」整段线性插值。
+            offset = 0.0
+            duration = 0.0
+            if config_segs and i < len(config_segs):
+                c = config_segs[i]
+                offset = float(c.get("offset", 0) or 0)
+                fpath = c.get("file", "")
+                duration = seg_duration(fpath) if fpath else 0.0
+            span_start, span_end = offset, offset + duration
         parts = split_sentences(text)
         n = len(parts)
+        if n == 0:
+            continue
         for j, p in enumerate(parts):
             if not p:
                 continue
-            start = offset + duration * (j / n) if duration else offset
-            end = offset + duration * ((j + 1) / n) if duration else offset
+            start = span_start + (span_end - span_start) * (j / n)
+            end = span_start + (span_end - span_start) * ((j + 1) / n)
             sentences.append({
                 "idx": idx,
                 "start": round(start, 1),
@@ -290,7 +304,7 @@ def main():
         data = json.load(f)
     config_segs = load_config(args.config)
     sentences = parse_sentences(data, config_segs)
-    print(f"解析到 {len(sentences)} 个句子（逐句时间码为插值估算）")
+    print(f"解析到 {len(sentences)} 个句子（Paraformer 为真实句级时间码；SenseVoice 为整段插值估算）")
 
     if args.review or not args.output:
         print("\n=== 逐句解析 + 建议角色（供 Agent 复核） ===")

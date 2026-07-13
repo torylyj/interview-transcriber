@@ -71,7 +71,7 @@ echo "..." | python <skill_dir>/scripts/call_qwen.py --model qwen-plus
   "audio_file": "输出.mp3",
   "frame_path": "人物静帧.jpg",
   "output_dir": "./output",
-  "model": "sensevoice"
+  "model": "paraformer"
 }
 ```
 

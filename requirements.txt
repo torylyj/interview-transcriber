@@ -12,7 +12,7 @@
 #   - dashscope            ：云端 Qwen3-ASR-Flash 转录 + 文本任务（说话人/摘要 LLM）
 #
 # ⚠️ 已移出默认（不推荐、可省，无需安装即可完成全流程）：
-#   - faster-whisper  ：~3GB 模型，中文质量一般，SenseVoice 已够用
+#   - faster-whisper  ：~3GB 模型，中文质量一般，本地 Paraformer 已更准
 #   - pyannote.audio  ：声纹分离，需 HuggingFace Token；说话人改由 LLM 语义切分（免 Token）
 #   若确有需要，单独安装：
 #   pip install -i https://mirrors.aliyun.com/pypi/simple faster-whisper pyannote.audio

@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org)
 [![中文转录](https://img.shields.io/badge/中文转录-Qwen3--ASR--Flash-rightgreen)](https://help.aliyun.com/zh/model-studio/)
-[![本地模型](https://img.shields.io/badge/本地模型-SenseVoice%20%7C%20Paraformer-orange)](https://modelscope.cn)
+[![本地模型](https://img.shields.io/badge/本地模型-Paraformer-large%20%7C%20SenseVoice-orange)](https://modelscope.cn)
 [![Agents](https://img.shields.io/badge/Agent-WorkBuddy%20%7C%20Claude%20Code%20%7C%20Codex-purple)](https://github.com)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
@@ -31,7 +31,7 @@
 | 🎞️ 输入预处理 | 视频：提取**最清晰静帧** + 转 MP3；音频：直接用作音频（跳过转 MP3、无静帧） |
 | 🧩 多段合并 | 一个采访拆成多个文件？明确告知后自动合并转录为一篇文档 |
 | ☁️ 云端转录 | Qwen3-ASR-Flash（可选方式，需 DashScope API Key） |
-| 💻 本地转录 | **默认** SenseVoice / Paraformer（魔搭社区，中文优秀，离线可用） |
+| 💻 本地转录 | **默认** Paraformer-large（魔搭社区，中文最高精度，离线可用）/ 可选 SenseVoice（轻量·多语言·情感） |
 | ⏱️ 对话时间码 | 每轮对话标注 `[MM:SS]`，精准定位视频位置 |
 | 🗣️ 说话人识别 | LLM 语义分析，自动区分「采访者 / 受访人 / 其他角色」（支持多说话人） |
 | 📝 内容摘要 | LLM 生成 3–5 句话概括采访核心内容 |
@@ -59,7 +59,7 @@ https://github.com/torylyj/interview-transcriber
 - **ffmpeg** — 视频处理。Windows 缺失时 Agent 会自动从**国内镜像**下载静态构建；也可手动用 choco / winget / brew 安装。
 - **Python 3.10+** — 运行转录脚本。
 - **DashScope API Key** — 仅**云端转录**需要（[获取地址](https://bailian.console.aliyun.com/?tab=model#/api-key)）；本地转录完全不需要。
-- **无需 HuggingFace Token** — 说话人统一由 LLM 语义切分，模型仅 SenseVoice / Paraformer（魔搭社区国内直连）。
+- **无需 HuggingFace Token** — 说话人统一由 LLM 语义切分，模型仅 Paraformer-large / SenseVoice（魔搭社区国内直连）。
 
 > 💡 **安装是自动的**：把本技能交给 Agent 后，首次使用它会自动通过**国内镜像**装好依赖与 ffmpeg（如需手动触发：`python scripts/setup_env.py`）。你通常不需要手动装任何东西。
 
@@ -79,7 +79,7 @@ https://github.com/torylyj/interview-transcriber
 帮我转录这段采访录音：D:/audios/interview_001.m4a
 ```
 
-Agent 收到后会自动执行完整流程，**默认使用本地转录（SenseVoice，离线可用、无需任何配置）**，不会打断你提问。
+Agent 收到后会自动执行完整流程，**默认使用本地转录（Paraformer-large，中文高精度、离线可用、无需任何配置）**，不会打断你提问。
 
 - 如果想用**云端转录**，随时告诉 Agent「用云端转录」（需 DashScope API Key），它会切换为 Qwen3-ASR-Flash。
 - 如果**一个采访被拆成了多段视频/音频**，只需在开头说明「这 N 个文件是同一段采访」，Agent 会自动合并转录成一篇文档。
@@ -104,7 +104,7 @@ Agent 收到后会自动执行完整流程，**默认使用本地转录（SenseV
 export DASHSCOPE_API_KEY="sk-your-key-here"
 ```
 
-> 💡 **提示**：默认本地转录（SenseVoice，离线可用、无需配置）；如想用云端也可切 Qwen3-ASR-Flash（需 DashScope API Key）。
+> 💡 **提示**：默认本地转录（Paraformer-large，中文高精度、离线可用、无需配置）；如想用云端也可切 Qwen3-ASR-Flash（需 DashScope API Key）。
 
 ---
 
@@ -127,7 +127,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 |------|------|------|
 | 视频提取音频（ffmpeg） | 20–40 秒 | 20–40 秒 |
 | 模型加载（每次新进程） | 10–30 秒 | — |
-| ASR 转录 | **1.5–3 分钟**（GPU ~20x 实时） | **2–4 分钟**（分 5 段上传+服务端） |
+| ASR 转录 | **2–4 分钟**（GPU 加速，较 SenseVoice 慢约一倍） | **2–4 分钟**（分 5 段上传+服务端） |
 | 说话人识别+摘要+自检（LLM） | 1–3 分钟 | 1–3 分钟 |
 | 抽最清晰静帧 | 10–20 秒 | 10–20 秒 |
 | 生成 .docx | <10 秒 | <10 秒 |
@@ -135,21 +135,21 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | **本机后续** | **≈ 4–8 分钟** | **≈ 4–8 分钟** |
 
 - **本机「首次≈后续」**：因为模型已缓存在本地，首次不再有下载开销。技能里的「首次转录会下载模型」提醒只对**全新机器第一次跑**才生效。
-- **全新机器首次**（换电脑）：本地模式额外加 ①pip 装依赖 ~1–2 分钟（国内镜像）+ ②SenseVoice 模型下载 ~1–3 分钟（魔搭国内直连），即首次 **6–12 分钟**；云端模式永远不需要下载模型。
+- **全新机器首次**（换电脑）：本地模式额外加 ①pip 装依赖 ~1–2 分钟（国内镜像）+ ②Paraformer-large 模型下载 ~1–5 分钟（魔搭国内直连，约 800MB），即首次 **6–12 分钟**；云端模式永远不需要下载模型。
 - **本地与云端耗时相当**（都约 4–8 分钟）；本地完全离线、无需 Key，云端需联网与 Key，两种方式都能满足常规转录需求。
 
 ---
 
 ## 💻 最低硬件配置
 
-纯本地转录对硬件要求不高（模型仅 ~500MB），分两档：
+纯本地转录对硬件要求不高（默认 Paraformer-large 模型 ~800MB，SenseVoice 轻量 ~500MB），分两档：
 
 ### 纯 CPU 模式（无显卡也行）
 
 | 项 | 最低要求 | 说明 |
 |----|---------|------|
 | CPU | 任意 x86-64 双核，2.0GHz+ | 近 10 年内的电脑基本满足 |
-| 内存 | 8GB（建议 16GB） | 模型 ~0.5GB + torch 推理峰值 4–6GB |
+| 内存 | 8GB（建议 16GB） | Paraformer-large ~0.8GB + torch 推理峰值 4–6GB |
 | 硬盘 | 10GB 可用 | 环境 ~1.5GB + 模型 0.5–1GB + 系统/临时 |
 | 显卡 | 不需要 | 完全用 CPU 跑 |
 | 系统 | Windows 10/11、Linux、macOS | 脚本用正斜杠，跨平台 |
@@ -160,7 +160,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | 项 | 最低要求 | 说明 |
 |----|---------|------|
 | GPU | NVIDIA 显卡，≥4GB 显存，支持 CUDA | 入门级 GTX 1650 4GB / RTX 3050 4GB 即可 |
-| 显存占用 | SenseVoice 小模型推理约 1–2GB | 4GB 显存绰绰有余 |
+| 显存占用 | Paraformer-large 推理约 3–4GB | 4GB 显存绰绰有余（SenseVoice 轻量仅 1–2GB） |
 | 驱动 | 支持 CUDA 12.x | 需对应 NVIDIA 驱动版本 |
 | **20 分钟视频耗时** | **约 2–4 分钟** | 本机 RTX 4070 Ti 16GB 即此档 |
 
@@ -168,7 +168,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 > 1. 必须是 **NVIDIA 显卡** 才能用已装的 CUDA 版 torch；AMD / Intel 核显无法用 CUDA，只能退回 CPU。
 > 2. **说话人识别由 LLM 语义切分**：本地/云端统一走 LLM（Agent 自身或 qwen-plus），无需额外 Key，支持多说话人。
 > 3. **ffmpeg 必需**（视频抽静帧、提取音频），独立下载项，不算在 Python 环境里。
-> 4. **首次需联网**：下载模型（~500MB，魔搭国内直连）+ pip 依赖；之后可完全离线跑 ASR。
+> 4. **首次需联网**：下载模型（默认 Paraformer-large ~800MB，魔搭国内直连）+ pip 依赖；之后可完全离线跑 ASR。
 
 ---
 
@@ -177,8 +177,8 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 - **文档命名规范**：`拍摄时间+人物简介`，如 `26-0509 车辆学院直博生`（人物简介 ≤10 字）。
 - **多段采访合并**：必须**明确告知哪几个文件属于同一段采访**，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。
 - **智能静帧**：由 `scripts/extract_frame.py` 将视频**五等分、各抽 1 帧**并按清晰度比选最清晰的一张（输入定位，不软解整段视频，避免黑屏/字幕遮挡帧）。
-- **默认本地转录**：默认 SenseVoice 离线可用、无需配置；仅当用户明确要求用云端或提供 DashScope API Key 时才切。
-- **时间码精度**：本地为句级插值估算（段落边界精确，段内为估算值）；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
+- **默认本地转录**：默认 Paraformer-large 离线可用、无需配置；仅当用户明确要求用云端、SenseVoice 或提供 DashScope API Key 时才切。
+- **时间码精度**：本地 Paraformer-VAD 为真实句级时间码；SenseVoice 为句级插值估算（段落边界精确，段内为估算值）；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
 - **Windows 路径**：使用正斜杠 `/`，避免中文路径传给 API。
 - **长文本处理**：LLM 单次输入建议不超过 8000 字符，超长需分段。
 - **在线文档上传**：部分平台 API 限制内容长度，超长文档需分段上传。
@@ -189,6 +189,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v1.6.0 | 2026-07-14 | **默认本地模型切换为 Paraformer-large（高精度）**：不再默认下载 SenseVoice-small（small 模型中文精度不足）；SenseVoice 降级为可选轻量项（`--model sensevoice`，要速度/多语言/情感标签时用）。附：修复切换后 `build_document.py` 句级时间码 bug——Paraformer-VAD 返回真实句级 sentence_info，原按段索引对齐插值的逻辑会导致时间码错位/归零，改为「有真实时间码用真实跨度、SenseVoice 才回退插值」。中文准确率（尤其嘈杂/口音场景）与标点恢复均提升。 |
 | v1.5.1 | 2026-07-14 | **更新日志细化版本号**：按提交历史为每项独立更新编唯一版本，不再多个更新共用同一版本号 |
 | v1.5.0 | 2026-07-14 | **安装幂等化（杜绝重复下载）**：`setup_env.py` 安装前用 `is_importable()` 真实 import 探测；Python 依赖已装即跳过（`--force` 可强制重装）；`install_torch` 已装且版本匹配（要 GPU 且有 CUDA / 要 CPU 有 torch）也跳过，根治「2.7GB CUDA torch 每次运行都重复下载」；`gotchas.md` 新增坑 1.3 作回归护栏。commit `f3bc742` |
 | v1.4.5 | 2026-07-13 | **PM 视角整改（去个人化 + 闭环工具化）**：① 删掉钉钉个人身份/收件人等"错误案例"，分发规则泛化为通用最佳实践；② 修 P0 事实矛盾——`output_schema.md` 不再写"本地模式精确到秒"，与 `build_docx.py`/`gotchas` 一致为"句级插值估算、段落边界精确"；③ 补说话人识别工具断点：`build_document.py` 新增 `--apply corrections.json`，Agent（方式 A）复核后一键落盘最终 `document.json`；④ `build_docx.py` 新增 `--no-frame`；⑤ 新增 `prepare.py` 一键生成 `transcribe_config.json`；⑥ 诚实化定位：display_name 去"秒变"、描述主动交代首跑下载量与本地/云端取舍；⑦ Step 5 保留 `_document.json`；⑧ `transcribe_local.py` 元数据不再误标 qwen-plus；`prompts.md` 云端方法A 与"仅段级时间戳"对齐 |
@@ -208,7 +209,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | v1.2.3 | 2026-07-10 | 支持音频输入（跳过转 MP3、无静帧）；切段决策移至选完转录方式后的 Step 2.6 |
 | v1.2.2 | 2026-07-10 | 美化 README（hero 标题 + 徽章 + 目录 + 工作流图修正），文档预览同步最新输出格式 |
 | v1.2.1 | 2026-07-10 | 新增 Step 6：全流程完成后主动询问用户交付位置 |
-| v1.2.0 | 2026-07-10 | 修正本地转录前置条件说明（SenseVoice 无需 HuggingFace Token） |
+| v1.2.0 | 2026-07-10 | 修正本地转录前置条件说明（Paraformer/SenseVoice 无需 HuggingFace Token） |
 | v1.1.5 | 2026-07-09 | 新增 Step 3.6：LLM 生成内容摘要与人物信息，置于文档正文最前面 |
 | v1.1.4 | 2026-07-09 | 适配多种 AI Agent（Claude Code、Codex 等）；统一使用"采访"表述 |
 | v1.1.3 | 2026-07-09 | 新增对话时间码：每轮对话标注 [MM:SS]（本地为句级插值估算，段落边界精确） |

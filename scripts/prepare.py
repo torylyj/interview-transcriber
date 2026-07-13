@@ -166,9 +166,9 @@ def main():
     ap = argparse.ArgumentParser(description="采访转录前置配置生成器")
     ap.add_argument("inputs", nargs="+", help="视频/音频文件（同采访可传多个）")
     ap.add_argument("--mode", default="local", choices=["local", "cloud"],
-                   help="local=SenseVoice（默认）；cloud=Qwen3-ASR-Flash")
-    ap.add_argument("--model", default="sensevoice", choices=["sensevoice", "paraformer"],
-                   help="本地模型（仅 local 模式生效）")
+                   help="local=Paraformer-large（默认,高精度）；cloud=Qwen3-ASR-Flash")
+    ap.add_argument("--model", default="paraformer", choices=["sensevoice", "paraformer"],
+                   help="本地模型（仅 local 模式生效；默认 paraformer 高精度，可选 sensevoice 轻量）")
     ap.add_argument("--title", default=None, help="文档标题（默认从文件名推导）")
     ap.add_argument("--output-dir", default=None, help="输出目录（默认第一个文件所在目录）")
     a = ap.parse_args()

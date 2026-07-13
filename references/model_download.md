@@ -4,13 +4,13 @@
 
 | 模型 | 下载源 | 需要 HF Token | 中文质量 | 大小 | 备注 |
 |------|--------|--------------|---------|------|------|
-| SenseVoiceSmall（本地默认） | 魔搭社区 modelscope.cn | 否 | ⭐⭐⭐⭐ 优秀 | ~500MB | 推荐 |
-| Paraformer-large | 魔搭社区 modelscope.cn | 否 | ⭐⭐⭐⭐ 优秀 | ~800MB | 备选 |
-| faster-whisper large-v3 | HuggingFace | 否（需镜像） | ⭐⭐⭐ 一般 | ~3GB | **已移出默认（不推荐，SenseVoice 已够用）** |
+| Paraformer-large（本地默认） | 魔搭社区 modelscope.cn | 否 | ⭐⭐⭐⭐⭐ 中文最高（尤其嘈杂/口音） | ~800MB | 推荐（默认） |
+| SenseVoiceSmall（可选轻量） | 魔搭社区 modelscope.cn | 否 | ⭐⭐⭐⭐ 快/轻量/多语言+情感 | ~500MB | 备选（要速度/多语言/情感时选） |
+| faster-whisper large-v3 | HuggingFace | 否（需镜像） | ⭐⭐⭐ 一般 | ~3GB | **已移出默认（不推荐，本地 Paraformer 已更准）** |
 | pyannote.audio（声纹分离） | HuggingFace | 是 | — | ~100MB | **已移出默认（说话人改走 LLM 语义切分，免 Token）** |
 
 - SenseVoice / Paraformer 从魔搭社区下载，**国内直连、无需 HuggingFace、无需 API Key**，离线可用。
-- faster-whisper / pyannote.audio **已移出默认流程**（不推荐、可省）：说话人统一改由 LLM 语义切分，无需声纹分离；SenseVoice 中文质量已够用，无需 ~3GB 的 whisper。
+- faster-whisper / pyannote.audio **已移出默认流程**（不推荐、可省）：说话人统一改由 LLM 语义切分，无需声纹分离；本地默认 Paraformer-large 中文精度最高（尤其嘈杂/口音场景），SenseVoice 作为更快/多语言/情感的可选轻量项，无需 ~3GB 的 whisper。
 - **ffmpeg 安装**：Windows 缺失时运行 `python scripts/setup_env.py` 自动从 **npmmirror 二进制镜像**下载静态构建（含 ffprobe），无需访问 GitHub releases（国内常下载不动）。
 
 ## 依赖安装（务必走国内镜像）
@@ -29,7 +29,7 @@ pip install -i $PIP_MIRROR funasr modelscope
 ```
 
 > ⚠️ **faster-whisper / pyannote.audio 已移出默认安装**（不推荐、可省）：
-> - faster-whisper 模型 ~3GB 且中文一般，SenseVoice 已够用；
+> - faster-whisper 模型 ~3GB 且中文一般，本地 Paraformer-large 已更准；
 > - pyannote.audio 声纹分离需 HF Token，说话人改由 LLM 语义切分（免 Token）。
 > 若确有需要：`pip install -i $PIP_MIRROR faster-whisper pyannote.audio`
 
@@ -70,4 +70,4 @@ huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_HF_TOKEN
 ## 使用提示
 
 - 无 HuggingFace Token 也能用：SenseVoice/Paraformer 从魔搭下载，无需 HF；仅 pyannote 声纹分离需要 Token。无 Token 时可跳过声纹分离，转录后使用 LLM 语义切分说话人（同云端模式，支持多说话人）。
-- 如对中文转录质量要求高，优先本地 SenseVoice，或在流程末尾提示用户切换云端 Qwen3-ASR-Flash。
+- 如对中文转录质量要求高，本地默认已用 Paraformer-large（高精度）；如需更快/多语言/情感标签可选 SenseVoice，或在流程末尾提示用户切换云端 Qwen3-ASR-Flash。
