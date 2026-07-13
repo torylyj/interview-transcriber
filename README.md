@@ -1,6 +1,6 @@
-# 🎬 Interview Transcriber
+# 🎬 音视频转文档
 
-> 采访视频一键转录技能 · 自动把视频变成**带说话人识别、内容摘要与人物信息**的结构化文档
+> 音视频一键转文档技能 · 自动把视频/音频变成**带说话人识别、内容摘要与人物信息**的结构化文档
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org)
 [![中文转录](https://img.shields.io/badge/中文转录-Qwen3--ASR--Flash-rightgreen)](https://help.aliyun.com/zh/model-studio/)
@@ -8,7 +8,7 @@
 [![Agents](https://img.shields.io/badge/Agent-WorkBuddy%20%7C%20Claude%20Code%20%7C%20Codex-purple)](https://github.com)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
-给 Agent 一段采访视频，它会自动跑完 **预处理 → 转录 → 说话人识别 → 摘要与人物信息 → 输出文档**，最后还会问你「要把文档发到哪里」。你只需要在中间选一下转录方式。
+给 Agent 一段音视频，它会自动跑完 **预处理 → 转录 → 说话人识别 → 摘要与人物信息 → 输出文档**，最后还会问你「要把文档发到哪里」。你只需要在中间选一下转录方式。
 
 ## 📑 目录
 
@@ -29,13 +29,13 @@
 | 功能 | 说明 |
 |------|------|
 | 🎞️ 输入预处理 | 视频：提取**最清晰静帧** + 转 MP3；音频：直接用作音频（跳过转 MP3、无静帧） |
-| 🧩 多段合并 | 一个采访拆成多个文件？明确告知后自动合并转录为一篇文档 |
+| 🧩 多段合并 | 一段音视频拆成多个文件？明确告知后自动合并转录为一篇文档 |
 | ☁️ 云端转录 | Qwen3-ASR-Flash（可选方式，需 DashScope API Key） |
 | 💻 本地转录 | **默认** Paraformer-large（魔搭社区，中文最高精度，离线可用）/ 可选 SenseVoice（轻量·多语言·情感） |
 | ⏱️ 对话时间码 | 每轮对话标注 `[MM:SS]`，精准定位视频位置 |
-| 🗣️ 说话人识别 | Paraformer-large + CAM++ 在**模型内**完成说话人分离（按声纹自动聚类，无需 LLM），自动区分说话人（支持多说话人）；角色命名（采访者/受访人）轻量处理 |
-| 📝 内容摘要 | LLM 生成 3–5 句话概括采访核心内容 |
-| 👤 人物信息 | LLM 提取受访人信息；**未提及则整段省略**，多人时每人一个独立表格 |
+| 🗣️ 说话人识别 | Paraformer-large + CAM++ 在**模型内**完成说话人分离（按声纹自动聚类，无需 LLM），自动区分说话人（支持多说话人）；统一中性命名为 说话人1/2/3……（不做采访者/受访人角色判定） |
+| 📝 内容摘要 | LLM 生成 3–5 句话概括音视频核心内容 |
+| 👤 人物信息 | LLM 提取人物信息；**未提及则整段省略**，多人时每人一个独立表格 |
 | 📤 多平台分发 | 本地 Word(.docx) / 钉钉文档 / 飞书 / Notion / 其他平台 |
 
 ---
@@ -48,7 +48,7 @@
 https://github.com/torylyj/interview-transcriber
 ```
 
-安装完成后，在 Agent 对话中提到「转录采访视频」就会自动触发。
+安装完成后，在 Agent 对话中提到「转文档」或「转音视频」就会自动触发。
 
 ---
 
@@ -113,15 +113,15 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 > 以下为文档内容结构；最终以 **Word 文档（.docx）** 形式交付，由 `scripts/build_docx.py` 直接读取结构化 JSON 生成（分发到在线平台时导出临时 Markdown，上传后即删）。
 
 1. **人物静帧**（仅视频输入）— 视频中人物画面截图（居中显示）；音频输入时无此行
-2. **内容摘要** — 3–5 句话概括采访核心内容
-3. **人物信息**（可选：短视频未提个人信息则整段省略；多位受访人各用一个表格）— 学校 / 专业 / 年级 / 家乡 / 关键经历 / 核心观点
-4. **采访记录** — 带说话人标签和时间码的逐句对话
+2. **内容摘要** — 3–5 句话概括音视频核心内容
+3. **人物信息**（可选：短视频未提个人信息则整段省略；多位人物各用一个表格）— 学校 / 专业 / 年级 / 家乡 / 关键经历 / 核心观点
+4. **对话记录** — 带说话人标签和时间码的逐句对话
 
 ---
 
 ## ⏱️ 性能预估
 
-以一段 **20 分钟采访视频** 为例（本机实测环境：NVIDIA RTX 4070 Ti SUPER + 模型已缓存）：
+以一段 **20 分钟音视频** 为例（本机实测环境：NVIDIA RTX 4070 Ti SUPER + 模型已缓存）：
 
 | 环节 | 本地模式（默认，GPU） | 云端模式（Qwen3-ASR-Flash） |
 |------|------|------|
@@ -175,7 +175,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 ## ⚠️ 注意事项
 
 - **文档命名规范**：`拍摄时间+人物简介`，如 `26-0509 车辆学院直博生`（人物简介 ≤10 字）。
-- **多段采访合并**：必须**明确告知哪几个文件属于同一段采访**，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。
+- **多段音视频合并**：必须**明确告知哪几个文件属于同一段音视频**，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。
 - **智能静帧**：由 `scripts/extract_frame.py` 将视频**五等分、各抽 1 帧**并按清晰度比选最清晰的一张（输入定位，不软解整段视频，避免黑屏/字幕遮挡帧）。
 - **默认本地转录**：默认 Paraformer-large 离线可用、无需配置；仅当用户明确要求用云端、SenseVoice 或提供 DashScope API Key 时才切。
 - **时间码精度**：本地 Paraformer-VAD 为真实句级时间码；SenseVoice 为句级插值估算（段落边界精确，段内为估算值）；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
@@ -189,6 +189,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v1.8.0 | 2026-07-14 | **技能更名 + 说话人统一中性命名 + 每轮配色标识**：① 技能名「采访转录成文档」→「音视频转文档」（更通用，采访仍覆盖）；② 说话人不再做采访者/受访人这类角色判定，统一按「首次出现顺序」中性命名为 说话人1、说话人2、说话人3……（`build_document.py` 的 `assign_speaker_labels` 按序编号，稳定可预期），真名/角色用 `--apply` 覆盖 `speaker_roles`（键为 说话人1/2/3）；③ 每个说话人一轮的「首次说话位置」用不同颜色的表情（🔴🟠🟡🟢🔵🟣…）标识，`.docx` 与上传用 Markdown 均生效，便于快速区分。文档全量同步。 |
 | v1.6.0 | 2026-07-14 | **默认本地模型切换为 Paraformer-large（高精度）**：不再默认下载 SenseVoice-small（small 模型中文精度不足）；SenseVoice 降级为可选轻量项（`--model sensevoice`，要速度/多语言/情感标签时用）。附：修复切换后 `build_document.py` 句级时间码 bug——Paraformer-VAD 返回真实句级 sentence_info，原按段索引对齐插值的逻辑会导致时间码错位/归零，改为「有真实时间码用真实跨度、SenseVoice 才回退插值」。中文准确率（尤其嘈杂/口音场景）与标点恢复均提升。 |
 | v1.7.0 | 2026-07-14 | **说话人分离交还模型（Paraformer + CAM++）**：本地不再依赖 LLM 语义切分——Paraformer-large 加载 `spk_model="cam++"`，单次 `generate()` 即产出「每句说话人 id + 真实句级时间码 + 标点」（按声纹自动聚类、无需指定人数、无需 HF Token）。`build_document.py` 改为按真实说话人聚合，仅剩轻量「角色命名」（`--auto` 按说话人聚合提问特征自动判采访者，`--apply` 可覆盖）；`--apply` schema 改为 `{speaker_roles, summary, person_info}`。彻底移除不可靠的逐句启发式与繁重的 LLM 切分，skill 大幅简化。 |
 | v1.5.1 | 2026-07-14 | **更新日志细化版本号**：按提交历史为每项独立更新编唯一版本，不再多个更新共用同一版本号 |
@@ -196,7 +197,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | v1.4.5 | 2026-07-13 | **PM 视角整改（去个人化 + 闭环工具化）**：① 删掉钉钉个人身份/收件人等"错误案例"，分发规则泛化为通用最佳实践；② 修 P0 事实矛盾——`output_schema.md` 不再写"本地模式精确到秒"，与 `build_docx.py`/`gotchas` 一致为"句级插值估算、段落边界精确"；③ 补说话人识别工具断点：`build_document.py` 新增 `--apply corrections.json`，Agent（方式 A）复核后一键落盘最终 `document.json`；④ `build_docx.py` 新增 `--no-frame`；⑤ 新增 `prepare.py` 一键生成 `transcribe_config.json`；⑥ 诚实化定位：display_name 去"秒变"、描述主动交代首跑下载量与本地/云端取舍；⑦ Step 5 保留 `_document.json`；⑧ `transcribe_local.py` 元数据不再误标 qwen-plus；`prompts.md` 云端方法A 与"仅段级时间戳"对齐 |
 | v1.4.4 | 2026-07-13 | **新增 gotchas 踩坑清单**：`references/gotchas.md` 汇总实测坑（GPU 进程回收、时间码插值、钉钉图不渲染、`dws auth status` 卡 2 分钟、同主题 overwrite 等），并修正 SKILL 旧陈述、补钉钉通用规则、脚本告警 |
 | v1.4.3 | 2026-07-13 | **长轮次自动分段**：`build_document.py` 将长独白按 ~160 字/4 句切成多段（每段带时间码），`.docx` 与在线文档均逐段呈现，根治"一大块难读" |
-| v1.4.2 | 2026-07-13 | **人物信息条件化（无则省略／多人多表）**：`person_info` 升级为支持多人（`[{name, fields}]`）；短视频未提个人信息时整段省略，多位受访人各渲染独立表格；同步更新 `build_docx.py` 渲染与 `prompts.md` 提取指令 |
+| v1.4.2 | 2026-07-13 | **人物信息条件化（无则省略／多人多表）**：`person_info` 升级为支持多人（`[{name, fields}]`）；短视频未提个人信息时整段省略，多位人物各渲染独立表格；同步更新 `build_docx.py` 渲染与 `prompts.md` 提取指令 |
 | v1.4.1 | 2026-07-13 | **GPU 自动检测 + 标准 build_document.py**：`setup_env.py` 检测到 NVIDIA 即装 CUDA 版 torch（本地模型仍默认）；新增标准 `build_document.py` 消费结构化 `segments`，根除手写 `<|withitn|>` 切分导致段丢失的 bug |
 | v1.4.0 | 2026-07-13 | **健壮性加固（超时看门狗 + 环境自检防漏装）**：`transcribe_local.py`/`call_qwen.py` 加 `with_timeout` 硬超时看门狗（模型加载 600s / 单段 ASR 900s / LLM 调用 180s，超时 `os._exit` 快速失败），根治"转着转着就没声了"的卡死；`setup_env.py` 改为逐包安装 + 新增 `verify_environment()` 真实 import 自检 |
 | v1.3.2 | 2026-07-11 | **静帧抽取优化（五等分，不软解整段）**：`extract_frame.py` 改为将视频严格**五等分**、从每段中心各抽 1 帧按清晰度比选最清晰帧，采用 ffmpeg 输入定位只解码目标点附近极少帧；并移除误入仓库的预览页 `docs/interview-transcriber.html` |

@@ -1,22 +1,22 @@
 ---
 name: interview-transcriber
-display_name: 采访转录成文档
+display_name: 音视频转文档
 description: |
-  采访转录全流程处理技能（支持视频与音频输入，也支持「一个采访拆成多段文件」合并转录）。默认本地转录（Paraformer-large 魔搭社区中文模型（高精度），离线可用、无需 API Key；⚠️ 首次运行需联网下载本地模型 ~800MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）。可选云端转录（Qwen3-ASR-Flash，需 DashScope API Key）。两种方式为并列可选：本地离线可用、无需 Key、首次需下载模型；云端需联网与 Key。默认本地，用户可随时切换。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> 说话人分离（本地 Paraformer+CAM++ 在模型内完成、云端 LLM 语义切分，支持多说话人；Paraformer 为真实句级时间码、SenseVoice 为插值估算）-> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
-  若用户把一个采访拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段采访，技能自动合并转录为一篇文档。
+  音视频转文档全流程处理技能（支持视频与音频输入，也支持「一段音视频拆成多段文件」合并转录）。默认本地转录（Paraformer-large 魔搭社区中文模型（高精度），离线可用、无需 API Key；⚠️ 首次运行需联网下载本地模型 ~800MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）。可选云端转录（Qwen3-ASR-Flash，需 DashScope API Key）。两种方式为并列可选：本地离线可用、无需 Key、首次需下载模型；云端需联网与 Key。默认本地，用户可随时切换。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> 说话人分离（本地 Paraformer+CAM++ 在模型内完成、云端 LLM 语义切分，支持多说话人；Paraformer 为真实句级时间码、SenseVoice 为插值估算）-> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
+  若用户把一段音视频拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段音视频，技能自动合并转录为一篇文档。
   适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后主动询问用户交付位置，并说明还有云端转录这一可选方式（需 DashScope API Key）。
 agent_created: true
 ---
 
-# 采访转录成文档（interview-transcriber）
+# 音视频转文档（interview-transcriber）
 
 ## 概述
 
-将采访内容（视频或音频，也可是一段采访被拆成的多个文件）全流程处理为带说话人识别的转录文档。核心流程始终执行：输入预处理 → 默认本地转录（Paraformer-large，高精度、离线可用）→ 模型按能力自动决定是否切段 → 说话人分离（本地 Paraformer+CAM++ 模型内完成，支持多说话人）→ 生成摘要与人物信息 → 直接生成 Word 文档（.docx）→ 自检精简语气词 → 交付前预览确认 → 可选分发。全部完成后主动询问用户交付位置，并说明还有云端转录这一可选方式（需 DashScope API Key）。
+将音视频内容（视频或音频，也可是一段音视频被拆成的多个文件）全流程处理为带说话人识别的转录文档。核心流程始终执行：输入预处理 → 默认本地转录（Paraformer-large，高精度、离线可用）→ 模型按能力自动决定是否切段 → 说话人分离（本地 Paraformer+CAM++ 模型内完成，支持多说话人）→ 生成摘要与人物信息 → 直接生成 Word 文档（.docx）→ 自检精简语气词 → 交付前预览确认 → 可选分发。全部完成后主动询问用户交付位置，并说明还有云端转录这一可选方式（需 DashScope API Key）。
 
 **转录方式（默认本地）：** 默认本地转录（Paraformer-large，从魔搭社区下载，无需 API Key，离线可用、中文高精度）；仅当用户明确要求用云端、或提供 DashScope API Key 时才切换 Qwen3-ASR-Flash。详见 references/model_download.md。
 
-**多段采访（重要）：** 若用户把一个采访拆成了多个视频/音频文件，必须请用户**明确告知哪几个文件属于同一段采访**，技能会合并转录为一篇文档。详见文末「多段采访输入说明」。
+**多段音视频（重要）：** 若用户把一段音视频拆成了多个视频/音频文件，必须请用户**明确告知哪几个文件属于同一段音视频**，技能会合并转录为一篇文档。详见文末「多段音视频输入说明」。
 
 ## Agent 适配说明
 
@@ -52,7 +52,7 @@ agent_created: true
 
 本技能在真实环境（Windows + 托管 Python 3.13 无 C++ 编译器 + RTX 4070 GPU + 钉钉 dws）跑通过，以下坑都是实测踩出来的。完整清单与对策见 **references/gotchas.md**（强烈建议改动技能或首次跑长任务前通读）。几条最高频、最致命的硬性规则：
 
-- **本地说话人由 CAM++ 在模型内分离（可靠）**：Paraformer-large 加载 `spk_model="cam++"`，单次 generate() 即返回每句 speaker id（按声纹自动聚类，无需指定人数）。`build_document.py --auto` 仅做轻量「角色命名」（按说话人聚合提问特征自动判采访者），**无需 LLM**；命名有误才用 `--apply` 覆盖。仅**云端** Qwen3-ASR-Flash 无原生分离，仍需 LLM 语义切分。
+- **本地说话人由 CAM++ 在模型内分离（可靠）**：Paraformer-large 加载 `spk_model="cam++"`，单次 generate() 即返回每句 speaker id（按声纹自动聚类，无需指定人数）。`build_document.py --auto` 统一按「首次出现顺序」中性命名为 说话人1/2/3……（不做采访者/受访人这类角色判定），**无需 LLM**；如需把 说话人1/2 改成真名/角色，用 `--apply` 覆盖。仅**云端** Qwen3-ASR-Flash 无原生分离，仍需 LLM 语义切分。
 - **本地时间码分两路**：Paraformer-VAD 返回**真实句级时间码**（sentence_info，精确到句）；仅 SenseVoice 的 `sentence_timestamp` 不生效、每段整块，逐句时间码才由「标点切句 + 各段偏移/时长线性插值」估算——**段内为估算值、段落边界才精确，勿标「精确到秒」**。
 - **钉钉在线文档无法渲染本地图片路径**：`H:/...jpg` 不显示，必须用 `dws doc media insert` 把图真正上传插入。
 - **钉钉 `dws auth status` 会卡 2 分钟**：别依赖它，直接试业务命令（doc search/create/send 正常即已登录）。
@@ -93,7 +93,7 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 ```
 - `frame_path=null`，`audio_file="输出.mp3"`（或原文件）
 
-**1d. 多段输入合并**：见文末「多段采访输入说明」（合并命令见 references/segment_commands.md）。
+**1d. 多段输入合并**：见文末「多段音视频输入说明」（合并命令见 references/segment_commands.md）。
 
 > 切段不在 Step 1 进行：由 Step 2.6 按模型能力自动决策（不询问用户）。
 
@@ -130,14 +130,14 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 ### Step 3.5: 说话人识别（本地已模型内完成，云端需 LLM）
 
-- **本地（默认）**：说话人已由 Paraformer+CAM++ 在模型内分离，`_transcript.json` 每段已带真实 `SPEAKER_XX`。**无需 LLM**；角色命名（采访者/受访人）在 Step 3.65 由 `build_document.py --auto` 轻量完成（按说话人聚合提问特征自动判采访者），有误才用 `--apply` 覆盖。
+- **本地（默认）**：说话人已由 Paraformer+CAM++ 在模型内分离，`_transcript.json` 每段已带真实 `SPEAKER_XX`。**无需 LLM**；统一命名（说话人1/2/3……）在 Step 3.65 由 `build_document.py --auto` 完成（按首次出现顺序中性编号），如需真名/角色用 `--apply` 覆盖。
 - **云端**：Qwen3-ASR-Flash 无原生说话人分离，仍需 LLM 语义切分。方法 A（Agent 自身 LLM）直接按 references/prompts.md 的 prompt 输出；方法 B（外部 API）用 `python <skill_dir>/scripts/call_qwen.py --prompt-file speaker_prompt.txt`。
 
 > 说明：本地说话人走 CAM++ 是按声纹聚类（模型内、可靠），与旧版「逐句启发式」或「LLM 语义切分」都不同——它直接给出「谁在何时说」，不再需要 Agent 做繁重的切分。
 
 ### Step 3.6: 生成摘要与人物信息（必须执行！）
 
-调用 LLM 生成 3-5 句摘要 + 受访人信息表（字段：学校/单位、专业/学院、年级/身份、家乡、关键经历、核心观点）。方法 A/B 同上，prompt 见 references/prompts.md。
+调用 LLM 生成 3-5 句摘要 + 人物信息表（字段：学校/单位、专业/学院、年级/身份、家乡、关键经历、核心观点）。方法 A/B 同上，prompt 见 references/prompts.md。
 
 **写入 `<标题>_document.json`**（字段定义见 references/output_schema.md）。该 JSON 由 Step 3.8 直接生成 .docx，**全程不生成 Markdown**。
 
@@ -146,33 +146,33 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 把 Step 3.5/3.6 的结果落盘为标准化 `<标题>_document.json`，**统一走脚本**而非临时正则切分（2026-07-13 复盘：手写切分曾把 SenseVoice 的 `<|withitn|>` 当段间分隔，导致段 1 整段丢失、段 3 丢失、时间码错乱；本脚本直接消费 `transcript.json` 的结构化 `segments`，根除该问题）。
 
 ```bash
-# 1) 先看逐句解析 + 建议角色（采访者/受访人），供 Agent 复核
+# 1) 先看逐句解析 + 说话人分布，供 Agent 复核命名
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" --review
 
-# 2) 自动按说话人聚合命名角色 + 写出 document.json（summary/person_info 由 Agent 填）
+# 2) 自动按首次出现顺序统一命名 说话人1/2/3…… + 写出 document.json（summary/person_info 由 Agent 填）
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --auto
 
 # 3) Agent 复核后用 corrections.json 落盘最终 document.json（推荐，避免手改 JSON）
-#    corrections.json = {"speaker_roles": {"SPEAKER_00":"采访者","SPEAKER_01":"受访人", ...}, "summary":"…", "person_info":[…]}
+#    corrections.json = {"speaker_roles": {"说话人1":"张三","说话人2":"李四", ...}, "summary":"…", "person_info":[…]}
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --apply corrections.json
 ```
 
 - 脚本消费 `transcript.json` 的 `segments`：Paraformer-VAD 已带**真实句级** start/end（精确到句）；SenseVoice 则整段一块、start/end 为 0，由本脚本「按标点切句 + 各段偏移/时长线性插值」得到——**段内为估算值，段落边界才精确，勿标「精确到秒」**。无需再解析 `raw_text`。
-- 说话人角色：本地已用 CAM++ 在模型内分离好（每段带真实 `SPEAKER_XX`），`--auto` 仅做轻量「命名」（按说话人聚合提问特征自动判采访者），**无需 LLM**。命名有误时再用 `--apply` 覆盖 `speaker_roles` 即可。⚠️ **轻量闭环（命名不准才用）**：① `python build_document.py transcript.json --review` 打印逐句 + 说话人分布；② 若自动命名不准，把角色映射写成 `corrections.json`：`{"speaker_roles": {"SPEAKER_00":"采访者","SPEAKER_01":"受访人"}, "summary":"…", "person_info":[…]}`；③ `python build_document.py transcript.json document.json --apply corrections.json` 自动按 speaker id 映射角色、合并连续同角色为 turn，写出最终 `document.json`（无需手改嵌套 JSON，避免出错）。
+- 说话人角色：本地已用 CAM++ 在模型内分离好（每段带真实 `SPEAKER_XX`），`--auto` 统一按首次出现顺序中性命名为 说话人1/2/3……，**无需 LLM**。命名有误时再用 `--apply` 覆盖 `speaker_roles` 即可。⚠️ **轻量闭环（命名不准才用）**：① `python build_document.py transcript.json --review` 打印逐句 + 说话人分布；② 若自动命名不准，把角色映射写成 `corrections.json`：`{"speaker_roles": {"说话人1":"张三","说话人2":"李四"}, "summary":"…", "person_info":[…]}`；③ `python build_document.py transcript.json document.json --apply corrections.json` 自动按 speaker id 映射角色、合并连续同角色为 turn，写出最终 `document.json`（无需手改嵌套 JSON，避免出错）。
 - 随后 Agent 把 Step 3.6 的 `summary` 与 `person_info` 写入同一 `document.json`（无信息则 `person_info: []` 整段省略；多人多表）。
-- 也可 `import` 本脚本的 `parse_sentences / auto_label_roles / assemble_document` 在 Agent 代码里直接调用。
-- **长轮次自动分段**：`group_turns` 会把长独白（如受访人一口气讲 1000+ 字）按 ~160 字或 4 句切成多段，每段带首句时间码；`build_docx.py` 的 `.docx` 与 Markdown 均逐段输出，避免一大块难读。
+- 也可 `import` 本脚本的 `parse_sentences / assign_speaker_labels / assemble_document` 在 Agent 代码里直接调用。
+- **长轮次自动分段**：`group_turns` 会把长独白（如某说话人一口气讲 1000+ 字）按 ~160 字或 4 句切成多段，每段带首句时间码；`build_docx.py` 的 `.docx` 与 Markdown 均逐段输出，避免一大块难读。
 
 ### Step 3.7: 自检与语气词精简（生成文档后执行）
 
-通读采访记录，适度删除明显冗余的语气词/填充词（嗯、啊、那个、就是、然后堆叠等）。原则：**只删明显冗余、不改原意、不动摘要/人物信息/时间码/说话人标签**。详见 references/prompts.md 文末说明。
+通读对话记录，适度删除明显冗余的语气词/填充词（嗯、啊、那个、就是、然后堆叠等）。原则：**只删明显冗余、不改原意、不动摘要/人物信息/时间码/说话人标签**。详见 references/prompts.md 文末说明。
 
 ### Step 3.8: 构建 Word 文档（直接生成，无中间 Markdown）
 
 ```
 python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "<output_dir>/<标题>.docx"
 ```
-直接渲染：标题、居中静帧（仅视频、`frame_path` 非 null）、内容摘要、人物信息（无则省略／多人多表）、文档信息（含**时间码精度**标注）、采访记录（加粗说话人+时间码）。音频输入跳过静帧。依赖：`pip install python-docx pillow`。
+直接渲染：标题、居中静帧（仅视频、`frame_path` 非 null）、内容摘要、人物信息（无则省略／多人多表）、文档信息（含**时间码精度**标注）、对话记录（加粗说话人+时间码，每轮首句用不同颜色表情标识）。音频输入跳过静帧。依赖：`pip install python-docx pillow`。
 
 ### Step 3.9: 交付前预览与轻量确认（清理前）
 
@@ -200,7 +200,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json
 
 全部完成后主动询问用户发哪里，再分发；未经确认不上传外部平台。如用户问起，也可说明：本次使用本地转录；若想改用云端 Qwen3-ASR-Flash（需 DashScope API Key）也可随时切换。
 
-## 多段采访输入说明（重要）
+## 多段音视频输入说明（重要）
 
 **用户须知**：当一个采访被拆成多个视频/音频文件时，用户必须**明确告知技能哪几个文件属于同一段采访**。技能不会自行假设多个文件是同一采访；未说明则每个文件各成一篇文档。
 
@@ -214,7 +214,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json
 
 - ❌ 启发式方法（关键词+段落长度）：已废弃，完全不可靠。
 - ✅ 云端模式：Qwen3-ASR-Flash 转录 + LLM 语义切分（支持多说话人）。
-- ✅ 本地模式：Paraformer-large + CAM++ 在模型内说话人分离（按声纹自动聚类，免 HF Token、无需 LLM；角色命名轻量处理即可）。
+- ✅ 本地模式：Paraformer-large + CAM++ 在模型内说话人分离（按声纹自动聚类，免 HF Token、无需 LLM；统一中性命名为 说话人1/2/3）。
 - Qwen3-ASR-Flash 不直接支持说话人分离；云端最优方案为「转录 + LLM 语义分段」。
 
 ## 错误处理与失败恢复
@@ -231,7 +231,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json
 
 ## 注意事项
 
-- **多段采访需用户明确说明归属**，才合并为一篇文档；未说明则各成一篇
+- **多段音视频需用户明确说明归属**，才合并为一篇文档；未说明则各成一篇
 - **本地说话人由 CAM++ 模型内分离（无需 LLM）**；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分（启发式已废弃）。
 - **DashScope 调用统一**：音频转录用 `MultiModalConversation.call(model="qwen3-asr-flash")`；文本任务（说话人/摘要）用 `scripts/call_qwen.py`（`Generation.call`, qwen-plus）。务必 `pip install -U dashscope`，勿用已变更的 `Transcription.call`（版本兼容见 references/dashscope_setup.md）
 - **默认本地 Paraformer-large 转录**，不强制询问；仅用户明确要求用云端、SenseVoice 或提供 Key 时切

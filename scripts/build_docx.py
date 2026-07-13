@@ -9,9 +9,9 @@ Word 文档。**全程不依赖 Markdown 中间文件。**
   - 文档标题
   - 居中人物静帧（仅视频输入，frame_path 非 null 时）
   - 内容摘要（📝 内容摘要，多段落）
-  - 受访人信息表格（👤 受访人信息，2 列）
+  - 人物信息表格（👤 人物信息，2 列）
   - 文档信息引用块（📋 文档信息）
-  - 采访记录（💬 采访记录，加粗说话人标签 + 时间码）
+  - 对话记录（💬 对话记录，加粗说话人标签 + 时间码，每轮首句用不同颜色表情标识）
 
 可选：
   --export-md <path>  额外导出一份临时 Markdown（供在线平台上传用，上传后即删）
@@ -25,6 +25,16 @@ import sys
 import json
 import argparse
 import re
+
+# 说话人配色（不同颜色的表情），按出现顺序分配，用于在每个说话人
+# 一轮的「首次说话位置」做标识，便于快速区分。
+_SPEAKER_EMOJI = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫"]
+
+def _speaker_emoji(speaker, state):
+    """按说话人出现顺序返回不同颜色的表情（state 跨轮次保持同一标识）。"""
+    if speaker not in state:
+        state[speaker] = _SPEAKER_EMOJI[len(state) % len(_SPEAKER_EMOJI)]
+    return state[speaker]
 
 
 def normalize_path(p):
@@ -119,7 +129,7 @@ def build(doc, data, base_dir):
                 add_inline_runs(p, para)
         doc.add_paragraph("")
 
-    # ── 受访人信息（条件性：无信息整段省略；多人每人一个表格）──
+    # ── 人物信息（条件性：无信息整段省略；多人每人一个表格）──
     person_info = data.get("person_info") or []
     if person_info:
         # 兼容两种结构：
@@ -127,7 +137,7 @@ def build(doc, data, base_dir):
         #   旧结构 = [{"field": "...", "value": "..."}, ...]（单人，整体当一个人的字段）
         new_style = isinstance(person_info[0], dict) and ("fields" in person_info[0])
         people = person_info if new_style else [{"name": "", "fields": person_info}]
-        doc.add_heading("\U0001F464 受访人信息", level=1)
+        doc.add_heading("\U0001F464 人物信息", level=1)
         for person in people:
             name = person.get("name", "") if isinstance(person, dict) else ""
             fields = person.get("fields", []) if isinstance(person, dict) else []
@@ -172,25 +182,27 @@ def build(doc, data, base_dir):
         q.add_run(line)
     doc.add_paragraph("")
 
-    # ── 采访记录 ──
-    doc.add_heading("\U0001F4AC 采访记录", level=1)
+    # ── 对话记录 ──
+    doc.add_heading("\U0001F4AC 对话记录", level=1)
     conversation = data.get("conversation") or []
     if not conversation:
-        print("  ⚠️ 警告: conversation 为空，文档将缺少采访记录")
+        print("  ⚠️ 警告: conversation 为空，文档将缺少对话记录")
+    emoji_state = {}
     for turn in conversation:
         speaker = turn.get("speaker", "")
+        emoji = _speaker_emoji(speaker, emoji_state)
         paras = turn.get("paragraphs") or []
         if not paras:
             # 旧结构回退：整块输出
-            label = f"**{speaker}** {turn.get('timestamp', '')}".strip()
+            label = f"{emoji} **{speaker}** {turn.get('timestamp', '')}".strip()
             p_label = doc.add_paragraph()
             add_inline_runs(p_label, label)
             p_text = doc.add_paragraph()
             add_inline_runs(p_text, turn.get("text", ""))
             continue
-        # 说话人标签（每轮一次，含首段时间码）
+        # 说话人标签（每轮一次，含首段时间码；首句用不同颜色表情标识）
         p_label = doc.add_paragraph()
-        add_inline_runs(p_label, f"**{speaker}** {paras[0]['ts']}".strip())
+        add_inline_runs(p_label, f"{emoji} **{speaker}** {paras[0]['ts']}".strip())
         # 各段：首段接在标签后（时间码已在标签），续段以时间码起头
         for i, para in enumerate(paras):
             txt = para["text"] if i == 0 else f"{para['ts']} {para['text']}"
@@ -213,7 +225,7 @@ def export_markdown(data, md_path, skip_frame=False):
     lines += ["---", "", "## \U0001F4DD 内容摘要", "", data.get("summary", ""), "", "---", ""]
     person_info = data.get("person_info") or []
     if person_info:
-        lines.append("## \U0001F464 受访人信息")
+        lines.append("## \U0001F464 人物信息")
         new_style = isinstance(person_info[0], dict) and ("fields" in person_info[0])
         people = person_info if new_style else [{"name": "", "fields": person_info}]
         for person in people:
@@ -241,18 +253,20 @@ def export_markdown(data, md_path, skip_frame=False):
         "",
         "---",
         "",
-        "## \U0001F4AC 采访记录",
+        "## \U0001F4AC 对话记录",
         "",
     ]
+    emoji_state = {}
     for turn in data.get("conversation") or []:
         speaker = turn.get("speaker", "")
+        emoji = _speaker_emoji(speaker, emoji_state)
         paras = turn.get("paragraphs") or []
         if not paras:
-            lines.append(f"**{speaker}** {turn.get('timestamp', '')}".strip())
+            lines.append(f"{emoji} **{speaker}** {turn.get('timestamp', '')}".strip())
             lines.append(turn.get("text", ""))
             lines.append("")
             continue
-        lines.append(f"**{speaker}** {paras[0]['ts']}".strip())
+        lines.append(f"{emoji} **{speaker}** {paras[0]['ts']}".strip())
         for i, para in enumerate(paras):
             lines.append(para["text"] if i == 0 else f"{para['ts']} {para['text']}")
             lines.append("")

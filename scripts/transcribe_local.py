@@ -11,8 +11,8 @@
 
 说话人分离：Paraformer-large 通过 CAM++ 说话人嵌入（spk_model）在模型内
 完成，返回每句 speaker id（按声纹自动聚类，无需预先指定人数）；不再依赖
-LLM 逐句语义切分或 pyannote.audio。模型只给「谁在何时说」，角色命名
-（采访者/受访人）由轻量步骤完成（见 build_document.py）。
+LLM 逐句语义切分或 pyannote.audio。模型只给「谁在何时说」，说话人中性命名
+（说话人1/2/3……）由轻量步骤完成（见 build_document.py）。
 
 用法: python transcribe_local.py --config config.json [--model sensevoice|paraformer]
 配置示例见 SKILL.md Step 2

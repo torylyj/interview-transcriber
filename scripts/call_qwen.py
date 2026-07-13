@@ -13,7 +13,7 @@ dashscope 调用代码、降低版本不一致风险。
   # 从标准输入读取 prompt
   echo "你是一个..." | python call_qwen.py --model qwen-plus
   # 直接传 prompt
-  python call_qwen.py --prompt "把下面文本分成采访者和受访人" --model qwen-plus
+  python call_qwen.py --prompt "把下面文本分成说话人1和说话人2" --model qwen-plus
 
 完整 prompt 模板见 references/prompts.md。
 """

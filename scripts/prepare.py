@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-prepare.py — 采访转录前置配置生成器（减少手动胶水）
+prepare.py — 音视频转文档前置配置生成器（减少手动胶水）
 
-输入：一个视频/音频文件（或同采访拆成的多段文件）
+输入：一个视频/音频文件（或同音视频拆成的多段文件）
 输出：transcribe_config.json（供 transcribe_local.py / transcribe_qwen.py 直接读取）
 
 自动完成：
   1. 识别输入类型（视频 / 音频）
   2. 视频：抽取最清晰静帧 + 转 16k 单声道 MP3；音频：重采样为 16k 单声道 MP3
-  3. 多段同采访：先各自转 MP3，再 ffmpeg concat 合并为统一 输出.mp3
+  3. 多段同音视频：先各自转 MP3，再 ffmpeg concat 合并为统一 输出.mp3
   4. ffprobe 取总时长，按所选模型能力自动切段
      - 云端 Qwen3-ASR-Flash：>5 分钟必切（4 分钟/段）
      - 本地 SenseVoice/Paraformer：>20 分钟建议切（4 分钟/段）
@@ -130,7 +130,7 @@ def derive_title(files, override):
             m = re.search(r"(\d{2})-?(\d{2})(\d{2})", os.path.basename(os.path.dirname(f)))
         if m:
             return f"{m.group(1)}-{m.group(2)}{m.group(3)} 待定人物"
-    return "采访转录 待定日期"
+    return "音视频转文档 待定日期"
 
 
 def decide_segments(merged_mp3, mode):
@@ -163,8 +163,8 @@ def decide_segments(merged_mp3, mode):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="采访转录前置配置生成器")
-    ap.add_argument("inputs", nargs="+", help="视频/音频文件（同采访可传多个）")
+    ap = argparse.ArgumentParser(description="音视频转文档前置配置生成器")
+    ap.add_argument("inputs", nargs="+", help="视频/音频文件（同音视频可传多个）")
     ap.add_argument("--mode", default="local", choices=["local", "cloud"],
                    help="local=Paraformer-large（默认,高精度）；cloud=Qwen3-ASR-Flash")
     ap.add_argument("--model", default="paraformer", choices=["sensevoice", "paraformer"],
@@ -178,7 +178,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 60)
-    print("采访转录 · 前置配置生成")
+    print("音视频转文档 · 前置配置生成")
     print("=" * 60)
 
     videos, audios = [], []
@@ -197,7 +197,7 @@ def main():
             sys.exit(1)
         mp3_list.append(dst)
 
-    # 2) 合并（多段同采访）
+    # 2) 合并（多段同音视频）
     merged = os.path.join(out_dir, "输出.mp3")
     if concat_mp3(mp3_list, merged) != 0:
         print("❌ 合并失败。")
