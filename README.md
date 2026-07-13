@@ -189,6 +189,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 日期 | 内容 |
 |------|------|
+| 2026-07-13 | **健壮性加固（超时看门狗 + 环境自检防漏装）**：`transcribe_local.py`/`call_qwen.py` 加 `with_timeout` 硬超时看门狗（模型加载 600s / 单段 ASR 900s / LLM 调用 180s，超时 `os._exit` 快速失败），根治"转着转着就没声了"的卡死；`setup_env.py` 改为逐包安装 + 新增 `verify_environment()` 真实 import 自检（装完强制复查，缺包给出精准修复命令）；SKILL.md 新增「长耗时步骤执行要点」与 Step 0 首次安装 review 流程 |
 | 2026-07-11 | **静帧抽取优化（五等分，不软解整段）**：`extract_frame.py` 改为将视频严格**五等分**、从每段中心各抽 1 帧（默认 5 帧）按清晰度比选最清晰帧，采用 ffmpeg 输入定位（`-ss` 在 `-i` 前）只解码目标点附近极少帧，彻底避免软解整段视频的性能消耗；同步 SKILL.md / segment_commands 说明；并移除此前误加入仓库的可视化预览页 `docs/interview-transcriber.html` |
 | 2026-07-11 | **补充文档：性能预估 + 最低硬件配置**：新增「⏱️ 性能预估」（20 分钟视频，本地 GPU/CPU 与云端耗时对比，本机首次≈后续≈4–8 分钟）与「💻 最低硬件配置」（纯 CPU 8GB 内存即可跑、20 分钟约 20–60 分钟；带 NVIDIA 4GB 显存显卡约 2–4 分钟）；并梳理修正若干表述（「首次使用准备」提示改为默认本地、SKILL.md 重复文本与模型下载体积范围） |
 | 2026-07-11 | **精简依赖（默认仅 5 包）**：移出 faster-whisper（~3GB，中文一般）与 pyannote.audio（声纹分离，需 HF Token）；说话人统一改由 LLM 语义切分（免 Token）；`setup_env.py`/`requirements.txt` 默认仅装 funasr/modelscope/python-docx/pillow/dashscope，新增 `--extras` 可选项；所有外网下载改国内镜像（阿里云 PyPI / npmmirror 二进制 / 魔搭 / hf-mirror.com），ffmpeg 走 npmmirror 静态构建 |
