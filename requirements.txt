@@ -13,7 +13,8 @@
 #
 # ⚠️ 已移出默认（不推荐、可省，无需安装即可完成全流程）：
 #   - faster-whisper  ：~3GB 模型，中文质量一般，本地 Paraformer 已更准
-#   - pyannote.audio  ：声纹分离，需 HuggingFace Token；说话人改由 LLM 语义切分（免 Token）
+#   - pyannote.audio  ：声纹分离，需 HuggingFace Token；**已废弃**——本地说话人改由
+#     CAM++ 说话人嵌入（FunASR spk_model，随 FunASR 自动从魔搭下载、免 Token），云端走 LLM 语义切分
 #   若确有需要，单独安装：
 #   pip install -i https://mirrors.aliyun.com/pypi/simple faster-whisper pyannote.audio
 

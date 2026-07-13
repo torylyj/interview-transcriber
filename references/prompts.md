@@ -44,9 +44,14 @@ Raw transcript:
 
 ---
 
-## Step 3.5 方法 B：本地模式 — LLM 角色映射
+## Step 3.5 方法 B：本地模式 — 模型内分离 + 轻量角色命名（无需 LLM）
 
-本地转录已包含 `SPEAKER_00 / SPEAKER_01 …` 标签，LLM 只需判断哪个是采访者、哪个是受访人（或其他角色）：
+> ⚠️ **v1.7.0 变更**：本地说话人分离已由 CAM++ 在模型内完成（`transcribe_local.py` 直接产出 `SPEAKER_00 / SPEAKER_01 …` 标签，**无需 LLM 切分**）。
+> 角色命名（采访者/受访人）交给 `build_document.py --auto` 轻量完成（按说话人聚合「提问频率 + 采访引导词」自动判定，无需 LLM）。
+> 仅在 `--auto` 命名不准时用 `build_document.py --apply corrections.json`（schema: `{"speaker_roles": {"SPEAKER_00":"采访者", ...}, ...}`）覆盖。
+> 下方 LLM prompt **仅作可选参考**：如需 LLM 辅助判定，把 `raw_text` 喂给它，再把结果整理进 `corrections.json` 的 `speaker_roles`。
+
+本地转录已包含 `SPEAKER_00 / SPEAKER_01 …` 标签（CAM++ 声纹聚类产物），LLM 只需判断哪个是采访者、哪个是受访人（或其他角色）：
 
 ```
 以下是一段采访的转录文本，已通过声纹分离区分出 N 个说话人（SPEAKER_00、SPEAKER_01 …）。
@@ -67,7 +72,7 @@ Raw transcript:
 {raw_text}
 ```
 
-> 本地 SenseVoice/Paraformer 中文质量优秀，配合 LLM 语义切分角色映射效果好；如个别长回答切分不佳，可在 Step 3.9 预览环节由用户纠正或改用云端。
+> 本地 Paraformer 中文质量优秀，且说话人已由 CAM++ 在模型内分离（无需 LLM 切分）；角色命名由 `build_document.py --auto` 轻量完成。如 `--auto` 命名不准，可在 Step 3.9 预览环节由用户用 `--apply` 纠正，或改用云端 Qwen3-ASR-Flash（云端无原生分离、仍需 LLM 语义切分）。
 
 ---
 

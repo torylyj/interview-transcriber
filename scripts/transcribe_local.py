@@ -3,12 +3,16 @@
 
 支持两种本地转录引擎（魔搭社区国内直连，无需 HuggingFace）：
   - Paraformer-large（默认）：中文高精度，尤其嘈杂/口音场景更稳；
-    自带 FSMN-VAD，返回真实句级时间码（sentence_info），无需插值估算。
+    由 FunASR 流水线内置 FSMN-VAD（真实句级时间码）、CT-Transformer
+    标点恢复、CAM++ 说话人嵌入（spk_model）一气呵成——时间码、标点、
+    说话人分离全部在单次 generate() 内产出，无需 LLM 后处理。
   - SenseVoice-small（可选轻量项）：更快、体积小（~500MB）、支持多语言
     与情感/事件标签；中文精度略逊于 Paraformer-large，时间码需插值估算。
 
-说话人分离：统一在 Step 3.5 用 LLM 语义切分（Agent 方式 A，免 API Key），
-不再依赖 pyannote.audio 声纹分离，免去 HuggingFace Token 与额外模型下载。
+说话人分离：Paraformer-large 通过 CAM++ 说话人嵌入（spk_model）在模型内
+完成，返回每句 speaker id（按声纹自动聚类，无需预先指定人数）；不再依赖
+LLM 逐句语义切分或 pyannote.audio。模型只给「谁在何时说」，角色命名
+（采访者/受访人）由轻量步骤完成（见 build_document.py）。
 
 用法: python transcribe_local.py --config config.json [--model sensevoice|paraformer]
 配置示例见 SKILL.md Step 2
@@ -62,8 +66,9 @@ MODEL_CONFIGS = {
         "source_url": "https://modelscope.cn/models/iic/SenseVoiceSmall",
         "size": "~500MB",
         "quality": "⭐⭐⭐⭐ (快/轻量/多语言+情感)",
-        "description": "阿里达摩院 SenseVoice-small：更快、体积小、支持中/英/日/韩/粤与情感/事件标签；中文精度略逊 Paraformer-large，时间码需插值",
+        "description": "阿里达摩院 SenseVoice-small：更快、体积小、支持中/英/日/韩/粤与情感/事件标签；中文精度略逊 Paraformer-large，时间码需插值；可加 CAM++ 做说话人分离",
         "funasr_model": "iic/SenseVoiceSmall",
+        "funasr_spk": "iic/speech_campplus_sv_zh-cn_16k-common",
         "needs_hf": False,
     },
     "paraformer": {
@@ -72,10 +77,11 @@ MODEL_CONFIGS = {
         "source_url": "https://modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
         "size": "~800MB",
         "quality": "⭐⭐⭐⭐⭐ (中文最高，尤其嘈杂/口音)",
-        "description": "阿里达摩院 Paraformer-large：中文大规模预训练，自带 FSMN-VAD（返回真实句级时间码）+ 标点恢复，嘈杂/口音场景更稳",
+        "description": "阿里达摩院 Paraformer-large：中文大规模预训练，FunASR 流水线内置 FSMN-VAD（真实句级时间码）+ CT-Transformer 标点恢复 + CAM++ 说话人嵌入（spk_model），时间码/标点/说话人分离一次 generate() 全产出",
         "funasr_model": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
         "funasr_vad": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
         "funasr_punc": "iic/punc_ct-transformer_cn-en-common-vocab471067-large",
+        "funasr_spk": "iic/speech_campplus_sv_zh-cn_16k-common",
         "needs_hf": False,
     },
 }
@@ -109,11 +115,13 @@ def load_funasr_model(model_key: str):
         "model": cfg["funasr_model"],
         "trust_remote_code": True,
     }
-    # Paraformer 额外加载 VAD 和标点模型
+    # Paraformer 额外加载 VAD、标点、说话人嵌入模型
     if "funasr_vad" in cfg:
         kwargs["vad_model"] = cfg["funasr_vad"]
     if "funasr_punc" in cfg:
         kwargs["punc_model"] = cfg["funasr_punc"]
+    if "funasr_spk" in cfg:
+        kwargs["spk_model"] = cfg["funasr_spk"]
 
     try:
         model = with_timeout(600, AutoModel, **kwargs)
@@ -157,9 +165,13 @@ def transcribe_funasr(model, audio_path: str, model_key: str) -> list:
         for s in sentence_info:
             text = s.get("text", "").strip()
             if text:
+                # 若加载了 spk_model（CAM++），sentence_info 每项带 spk 字段，
+                # 即模型内说话人聚类结果；无则回退统一 SPEAKER_00（由下游命名）。
+                spk = s.get("spk", 0)
                 segments.append({
                     "start": s.get("start", 0) / 1000.0,  # ms → s
                     "end": s.get("end", 0) / 1000.0,
+                    "speaker": f"SPEAKER_{int(spk):02d}" if "spk" in s else "SPEAKER_00",
                     "text": text,
                 })
     else:
@@ -236,8 +248,8 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
     """生成结构化转录数据（不生成 Markdown，供后续 LLM 处理与直接构建 .docx 使用）
 
     frame_path 为 None 时（音频输入）不输出静帧图。
-    raw_text 为带时间码和 SPEAKER 标签的原始转录文本，供 Step 3.5 LLM 角色映射使用。
-    说话人分离统一由 LLM 语义分析完成（speaker_method 字段标明）。
+    raw_text 为带时间码和 SPEAKER 标签的原始转录文本，供 Step 3.5 角色命名使用。
+    说话人分离由 CAM++ 说话人嵌入在模型内完成（speaker_method 字段标明）。
     """
     return {
         "title": title,
@@ -246,7 +258,7 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
         "input_type": input_type,
         "transcription_tool": model_name,
         "model": "local",
-        "speaker_method": "LLM 语义分析（Step 3.5，Agent 方式 A 直接判定）",
+        "speaker_method": "CAM++ 说话人嵌入（FunASR spk_model，按声纹自动聚类）",
         "date": datetime.now().strftime("%Y-%m-%d"),
         "raw_text": generate_raw_text(merged),
         # 结构化句子列表（含绝对时间码，秒），供 build_document.py 直接消费，
@@ -258,7 +270,7 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
 # ── 主流程 ────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="本地转录（阿里达摩院中文模型 + LLM 说话人切分）")
+    parser = argparse.ArgumentParser(description="本地转录（阿里达摩院中文模型 + CAM++ 说话人分离）")
     parser.add_argument("--config", required=True, help="JSON 配置文件路径")
     parser.add_argument(
         "--model",
@@ -295,7 +307,7 @@ def main():
     print(f"  模型: {model_cfg['name']} ({model_cfg['quality']})")
     print(f"  下载源: {model_cfg['source']}")
     print(f"  大小: {model_cfg['size']}")
-    print(f"  说话人: LLM 语义切分（Step 3.5，无需 HuggingFace Token）")
+    print(f"  说话人: CAM++ 说话人嵌入（模型内自动聚类，无需 LLM 切分）")
     print(f"  共 {len(segments)} 个音频段")
     print(f"{'='*60}\n")
 
@@ -326,9 +338,9 @@ def main():
             all_aligned.append([])
             continue
 
-        # b. 本地不区分说话人，统一标记为 SPEAKER_00，
-        #    由 Step 3.5 LLM 语义切分映射到角色名
-        aligned = [{"speaker": "SPEAKER_00", "text": s["text"], "start": s["start"], "end": s["end"]} for s in asr_segments]
+        # b. 说话人已由 CAM++ 在模型内分离（transcribe_funasr 返回的 speaker
+        #    字段即声纹聚类 id）；SenseVoice 路径未返回 speaker 时回退 SPEAKER_00。
+        aligned = [{"speaker": s.get("speaker", "SPEAKER_00"), "text": s["text"], "start": s["start"], "end": s["end"]} for s in asr_segments]
         all_aligned.append(aligned)
 
         # 预览

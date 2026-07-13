@@ -82,7 +82,7 @@ echo "..." | python <skill_dir>/scripts/call_qwen.py --model qwen-plus
 > - `segments` **不在本文件预填**，由 Step 2.6 在选定转录方式后根据是否切段写入
 >   - 切段时：`[{"file": "_seg1.mp3", "offset": 0}, {"file": "_seg2.mp3", "offset": 240}, ...]`
 >   - 不切段时：`[{"file": "输出.mp3", "offset": 0}]`
-> - `max_speakers`：说话人统一由 Step 3.5 LLM 语义切分（免 HF Token），群访同样支持
+> - 说话人：本地由 CAM++ 在模型内分离（免 HF Token、无需指定人数）；云端 Qwen3-ASR-Flash 无原生分离，由 Step 3.5 LLM 语义切分（免 HF Token），群访同样支持
 
 ## 音频分段要求（Step 2.6 决策）
 

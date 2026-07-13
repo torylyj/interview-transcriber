@@ -9,7 +9,7 @@
   "input_type": "video 或 audio",
   "source_file": "<原始输入文件名，如 输入.mp4 / 输入.m4a>",
   "transcription_tool": "通义千问 Qwen3-ASR-Flash（阿里云百炼）或 SenseVoice/Paraformer 模型名",
-  "speaker_method": "LLM 语义分析（qwen-plus，免 HF Token）",
+  "speaker_method": "CAM++ 说话人嵌入（FunASR spk_model，本地）或 LLM 语义切分（云端 qwen-plus，免 HF Token）",
   "summary_method": "LLM 生成",
   "date": "YYYY-MM-DD",
   "summary": "<LLM 生成的 3-5 句话摘要，多段落用 \\n 分隔>",
@@ -68,10 +68,10 @@
 > 源文件：<source_file>
 > 输入类型：视频 / 音频
 > 转录工具：Qwen3-ASR-Flash / SenseVoice
-> 说话人识别：LLM 语义分析
+> 说话人识别：CAM++ 说话人嵌入（本地）/ LLM 语义切分（云端）
 > 摘要与人物信息：LLM 生成
 > 转录日期：YYYY-MM-DD
-> 时间码精度：本地模式为句级插值估算（段落边界精确，段内为估算值）；云端模式为段内估算值（4 分钟粒度）
+> 时间码精度：本地 Paraformer 为真实句级时间码（VAD 句级，段落边界精确）；SenseVoice 本地为句级插值估算（段落边界精确，段内为估算值）；云端模式段内为估算值（4 分钟粒度）
 
 💬 采访记录
 **采访者** [00:00]

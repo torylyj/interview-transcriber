@@ -33,7 +33,7 @@
 | ☁️ 云端转录 | Qwen3-ASR-Flash（可选方式，需 DashScope API Key） |
 | 💻 本地转录 | **默认** Paraformer-large（魔搭社区，中文最高精度，离线可用）/ 可选 SenseVoice（轻量·多语言·情感） |
 | ⏱️ 对话时间码 | 每轮对话标注 `[MM:SS]`，精准定位视频位置 |
-| 🗣️ 说话人识别 | LLM 语义分析，自动区分「采访者 / 受访人 / 其他角色」（支持多说话人） |
+| 🗣️ 说话人识别 | Paraformer-large + CAM++ 在**模型内**完成说话人分离（按声纹自动聚类，无需 LLM），自动区分说话人（支持多说话人）；角色命名（采访者/受访人）轻量处理 |
 | 📝 内容摘要 | LLM 生成 3–5 句话概括采访核心内容 |
 | 👤 人物信息 | LLM 提取受访人信息；**未提及则整段省略**，多人时每人一个独立表格 |
 | 📤 多平台分发 | 本地 Word(.docx) / 钉钉文档 / 飞书 / Notion / 其他平台 |
@@ -59,7 +59,7 @@ https://github.com/torylyj/interview-transcriber
 - **ffmpeg** — 视频处理。Windows 缺失时 Agent 会自动从**国内镜像**下载静态构建；也可手动用 choco / winget / brew 安装。
 - **Python 3.10+** — 运行转录脚本。
 - **DashScope API Key** — 仅**云端转录**需要（[获取地址](https://bailian.console.aliyun.com/?tab=model#/api-key)）；本地转录完全不需要。
-- **无需 HuggingFace Token** — 说话人统一由 LLM 语义切分，模型仅 Paraformer-large / SenseVoice（魔搭社区国内直连）。
+- **无需 HuggingFace Token** — 本地说话人由 CAM++ 模型内分离（魔搭直连），模型仅 Paraformer-large / SenseVoice；已移出 faster-whisper / pyannote。
 
 > 💡 **安装是自动的**：把本技能交给 Agent 后，首次使用它会自动通过**国内镜像**装好依赖与 ffmpeg（如需手动触发：`python scripts/setup_env.py`）。你通常不需要手动装任何东西。
 
@@ -128,7 +128,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | 视频提取音频（ffmpeg） | 20–40 秒 | 20–40 秒 |
 | 模型加载（每次新进程） | 10–30 秒 | — |
 | ASR 转录 | **2–4 分钟**（GPU 加速，较 SenseVoice 慢约一倍） | **2–4 分钟**（分 5 段上传+服务端） |
-| 说话人识别+摘要+自检（LLM） | 1–3 分钟 | 1–3 分钟 |
+| 说话人命名+摘要+自检（LLM/轻量） | 1–3 分钟 | 1–3 分钟 |
 | 抽最清晰静帧 | 10–20 秒 | 10–20 秒 |
 | 生成 .docx | <10 秒 | <10 秒 |
 | **本机首次** | **≈ 4–8 分钟** | **≈ 4–8 分钟** |
@@ -166,7 +166,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 > ⚠️ **硬性约束：**
 > 1. 必须是 **NVIDIA 显卡** 才能用已装的 CUDA 版 torch；AMD / Intel 核显无法用 CUDA，只能退回 CPU。
-> 2. **说话人识别由 LLM 语义切分**：本地/云端统一走 LLM（Agent 自身或 qwen-plus），无需额外 Key，支持多说话人。
+> 2. **本地说话人由 CAM++ 模型内分离**：Paraformer-large 加载 `spk_model="cam++"`，单次 `generate()` 即返回每句说话人 id（按声纹自动聚类，无需额外 Key）；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分。
 > 3. **ffmpeg 必需**（视频抽静帧、提取音频），独立下载项，不算在 Python 环境里。
 > 4. **首次需联网**：下载模型（默认 Paraformer-large ~800MB，魔搭国内直连）+ pip 依赖；之后可完全离线跑 ASR。
 
@@ -190,6 +190,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | 版本 | 日期 | 内容 |
 |------|------|------|
 | v1.6.0 | 2026-07-14 | **默认本地模型切换为 Paraformer-large（高精度）**：不再默认下载 SenseVoice-small（small 模型中文精度不足）；SenseVoice 降级为可选轻量项（`--model sensevoice`，要速度/多语言/情感标签时用）。附：修复切换后 `build_document.py` 句级时间码 bug——Paraformer-VAD 返回真实句级 sentence_info，原按段索引对齐插值的逻辑会导致时间码错位/归零，改为「有真实时间码用真实跨度、SenseVoice 才回退插值」。中文准确率（尤其嘈杂/口音场景）与标点恢复均提升。 |
+| v1.7.0 | 2026-07-14 | **说话人分离交还模型（Paraformer + CAM++）**：本地不再依赖 LLM 语义切分——Paraformer-large 加载 `spk_model="cam++"`，单次 `generate()` 即产出「每句说话人 id + 真实句级时间码 + 标点」（按声纹自动聚类、无需指定人数、无需 HF Token）。`build_document.py` 改为按真实说话人聚合，仅剩轻量「角色命名」（`--auto` 按说话人聚合提问特征自动判采访者，`--apply` 可覆盖）；`--apply` schema 改为 `{speaker_roles, summary, person_info}`。彻底移除不可靠的逐句启发式与繁重的 LLM 切分，skill 大幅简化。 |
 | v1.5.1 | 2026-07-14 | **更新日志细化版本号**：按提交历史为每项独立更新编唯一版本，不再多个更新共用同一版本号 |
 | v1.5.0 | 2026-07-14 | **安装幂等化（杜绝重复下载）**：`setup_env.py` 安装前用 `is_importable()` 真实 import 探测；Python 依赖已装即跳过（`--force` 可强制重装）；`install_torch` 已装且版本匹配（要 GPU 且有 CUDA / 要 CPU 有 torch）也跳过，根治「2.7GB CUDA torch 每次运行都重复下载」；`gotchas.md` 新增坑 1.3 作回归护栏。commit `f3bc742` |
 | v1.4.5 | 2026-07-13 | **PM 视角整改（去个人化 + 闭环工具化）**：① 删掉钉钉个人身份/收件人等"错误案例"，分发规则泛化为通用最佳实践；② 修 P0 事实矛盾——`output_schema.md` 不再写"本地模式精确到秒"，与 `build_docx.py`/`gotchas` 一致为"句级插值估算、段落边界精确"；③ 补说话人识别工具断点：`build_document.py` 新增 `--apply corrections.json`，Agent（方式 A）复核后一键落盘最终 `document.json`；④ `build_docx.py` 新增 `--no-frame`；⑤ 新增 `prepare.py` 一键生成 `transcribe_config.json`；⑥ 诚实化定位：display_name 去"秒变"、描述主动交代首跑下载量与本地/云端取舍；⑦ Step 5 保留 `_document.json`；⑧ `transcribe_local.py` 元数据不再误标 qwen-plus；`prompts.md` 云端方法A 与"仅段级时间戳"对齐 |

@@ -10,7 +10,7 @@
      （默认直连国外 PyPI 经常超时，故强制走国内镜像）。
      ⚠️ 已移出默认安装（不推荐、可省）：
         · faster-whisper（~3GB 模型，中文一般）
-        · pyannote.audio（声纹分离，需 HF Token；说话人改由 LLM 语义切分，免 Token）
+        · pyannote.audio（声纹分离，需 HF Token；**已废弃**——本地说话人改由 CAM++ 说话人嵌入，免 Token）
        如需，见 requirements.txt 注释手动安装。
   2. ffmpeg（仅 Windows 缺失时）：从 npmmirror 二进制镜像下载 ffmpeg-static
      静态构建（含 ffprobe），放入 技能目录/tools/ffmpeg/bin，extract_frame.py
@@ -50,7 +50,7 @@ PY_DEPS = [
 ]
 # 已移出默认（不推荐、可省）：
 #   "faster-whisper"  # ~3GB 模型，中文一般
-#   "pyannote.audio"  # 声纹分离，需 HF Token；说话人改由 LLM 语义切分
+#   "pyannote.audio"  # 声纹分离，需 HF Token；已废弃——本地说话人改由 CAM++ 嵌入
 OPTIONAL_DEPS = ["faster-whisper", "pyannote.audio"]
 
 # 包名 -> import 模块名（用于「已装则跳过」真实探测，避免重复下载）
