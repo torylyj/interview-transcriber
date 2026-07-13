@@ -143,6 +143,7 @@ python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.j
 - 说话人角色：默认启发式初分（问句/短插话判为采访者），Agent 经 `--review` 复核后在 `document.json` 的 `conversation[].speaker` 直接修正（采访者/受访人/记者乙…）。
 - 随后 Agent 把 Step 3.6 的 `summary` 与 `person_info` 写入同一 `document.json`（无信息则 `person_info: []` 整段省略；多人多表）。
 - 也可 `import` 本脚本的 `parse_sentences / assign_roles / assemble_document` 在 Agent 代码里直接调用。
+- **长轮次自动分段**：`group_turns` 会把长独白（如受访人一口气讲 1000+ 字）按 ~160 字或 4 句切成多段，每段带首句时间码；`build_docx.py` 的 `.docx` 与 Markdown 均逐段输出，避免一大块难读。
 
 ### Step 3.7: 自检与语气词精简（生成文档后执行）
 

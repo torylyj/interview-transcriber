@@ -184,21 +184,64 @@ def assign_roles(sentences: list, predicate=is_interviewer) -> list:
     return out
 
 
+def split_paragraphs(sents: list) -> list:
+    """将一轮内的多条句子按长度/句数切成多个段落，每段带首句时间码。
+
+    长独白（如受访人一口气讲 1000+ 字）若整块输出极难阅读，
+    故累积到 ~160 字或 4 句即切一段，提升可读性。
+    """
+    paras = []
+    buf = []
+    for s in sents:
+        buf.append(s)
+        total = sum(len(x["text"]) for x in buf)
+        if total >= 160 or len(buf) >= 4:
+            paras.append(buf)
+            buf = []
+    if buf:
+        paras.append(buf)
+    out = []
+    for p in paras:
+        out.append({
+            "ts": fmt_ts(p[0]["start"]),
+            "text": "".join(x["text"] for x in p),
+        })
+    return out
+
+
+def _finalize_turn(cur: dict) -> dict:
+    sents = cur["_sents"]
+    paras = split_paragraphs(sents)
+    full = "".join(x["text"] for x in sents)
+    return {
+        "speaker": cur["speaker"],
+        "start": cur["start"],
+        "end": cur["end"],
+        "timestamp": paras[0]["ts"] if paras else fmt_ts(cur["start"]),
+        "text": full,
+        "paragraphs": paras,
+    }
+
+
 def group_turns(role_sentences: list) -> list:
-    """将连续同角色的句子合并为一个 turn；返回 conversation 列表。"""
+    """将连续同角色的句子合并为一个 turn；长 turn 自动切成多段（每段带时间码）。
+
+    返回的 turn 结构：
+      {"speaker", "start", "end", "timestamp", "text", "paragraphs": [{"ts","text"}, ...]}
+    `text` 保留全量文本以兼容旧渲染；`paragraphs` 为按段展示用。
+    """
     turns = []
+    cur = None
     for s in role_sentences:
-        if turns and turns[-1]["speaker"] == s["role"]:
-            turns[-1]["text"] += s["text"]
-            turns[-1]["end"] = s["end"]
+        if cur and cur["speaker"] == s["role"]:
+            cur["_sents"].append(s)
+            cur["end"] = s["end"]
         else:
-            turns.append({
-                "speaker": s["role"],
-                "timestamp": fmt_ts(s["start"]),
-                "start": s["start"],
-                "end": s["end"],
-                "text": s["text"],
-            })
+            if cur:
+                turns.append(_finalize_turn(cur))
+            cur = {"speaker": s["role"], "_sents": [s], "start": s["start"], "end": s["end"]}
+    if cur:
+        turns.append(_finalize_turn(cur))
     return turns
 
 

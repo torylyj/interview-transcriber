@@ -179,15 +179,23 @@ def build(doc, data, base_dir):
         print("  ⚠️ 警告: conversation 为空，文档将缺少采访记录")
     for turn in conversation:
         speaker = turn.get("speaker", "")
-        timestamp = turn.get("timestamp", "")
-        text = turn.get("text", "")
-        # 说话人 + 时间码行（加粗说话人）
-        label = f"**{speaker}** {timestamp}".strip()
+        paras = turn.get("paragraphs") or []
+        if not paras:
+            # 旧结构回退：整块输出
+            label = f"**{speaker}** {turn.get('timestamp', '')}".strip()
+            p_label = doc.add_paragraph()
+            add_inline_runs(p_label, label)
+            p_text = doc.add_paragraph()
+            add_inline_runs(p_text, turn.get("text", ""))
+            continue
+        # 说话人标签（每轮一次，含首段时间码）
         p_label = doc.add_paragraph()
-        add_inline_runs(p_label, label)
-        # 正文
-        p_text = doc.add_paragraph()
-        add_inline_runs(p_text, text)
+        add_inline_runs(p_label, f"**{speaker}** {paras[0]['ts']}".strip())
+        # 各段：首段接在标签后（时间码已在标签），续段以时间码起头
+        for i, para in enumerate(paras):
+            txt = para["text"] if i == 0 else f"{para['ts']} {para['text']}"
+            p_text = doc.add_paragraph()
+            add_inline_runs(p_text, txt)
 
 
 def export_markdown(data, md_path):
@@ -234,11 +242,16 @@ def export_markdown(data, md_path):
     ]
     for turn in data.get("conversation") or []:
         speaker = turn.get("speaker", "")
-        timestamp = turn.get("timestamp", "")
-        text = turn.get("text", "")
-        lines.append(f"**{speaker}** {timestamp}")
-        lines.append(text)
-        lines.append("")
+        paras = turn.get("paragraphs") or []
+        if not paras:
+            lines.append(f"**{speaker}** {turn.get('timestamp', '')}".strip())
+            lines.append(turn.get("text", ""))
+            lines.append("")
+            continue
+        lines.append(f"**{speaker}** {paras[0]['ts']}".strip())
+        for i, para in enumerate(paras):
+            lines.append(para["text"] if i == 0 else f"{para['ts']} {para['text']}")
+            lines.append("")
 
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
