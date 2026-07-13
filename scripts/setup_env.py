@@ -53,6 +53,25 @@ PY_DEPS = [
 #   "pyannote.audio"  # 声纹分离，需 HF Token；说话人改由 LLM 语义切分
 OPTIONAL_DEPS = ["faster-whisper", "pyannote.audio"]
 
+# 包名 -> import 模块名（用于「已装则跳过」真实探测，避免重复下载）
+PKG_IMPORT = {
+    "funasr": "funasr",
+    "modelscope": "modelscope",
+    "python-docx": "docx",
+    "pillow": "PIL",
+    "dashscope": "dashscope",
+    "faster-whisper": "faster_whisper",
+    "pyannote.audio": "pyannote",
+}
+
+def is_importable(mod: str) -> bool:
+    """真实探测某模块是否已可 import（不依赖 pip 记录）。"""
+    try:
+        __import__(mod)
+        return True
+    except Exception:
+        return False
+
 # ── ffmpeg 国内静态构建（npmmirror 二进制镜像，Windows x64）──
 # ffmpeg-static 的 win64 文件名即 ffmpeg-win32-x64（npm 历史命名），直接是可执行文件
 FFMPEG_MIRROR_BASE = "https://registry.npmmirror.com/-/binary/ffmpeg-static/b6.1.1"
@@ -79,26 +98,33 @@ def install_one_package(pkg: str) -> bool:
             continue
     return False
 
-def install_python_deps(extra: bool = False):
+def install_python_deps(extra: bool = False, force: bool = False):
     deps = list(PY_DEPS)
     if extra:
         deps += OPTIONAL_DEPS
         log("含不推荐可选包（faster-whisper / pyannote.audio）")
-    failed = []
+    skipped, failed = 0, []
     for pkg in deps:
+        mod = PKG_IMPORT.get(pkg, pkg)
+        if not force and is_importable(mod):
+            log(f"↷ {pkg} 已安装（import {mod} OK），跳过")
+            skipped += 1
+            continue
         log(f"→ 安装 {pkg} …")
         if install_one_package(pkg):
             log(f"  ✅ {pkg} 安装成功")
         else:
             log(f"  ❌ {pkg} 在所有镜像均安装失败")
             failed.append(pkg)
+    if skipped:
+        log(f"ℹ️ 已跳过 {skipped} 个已安装组件（未重复下载）")
     if failed:
         log(f"⚠️ 以下包安装失败（其余已装好，可单独重试）：{', '.join(failed)}")
         log("   单独重试：")
         for pkg in failed:
             log(f"     {sys.executable} -m pip install -i https://mirrors.aliyun.com/pypi/simple {pkg}")
         return False
-    log(f"✅ Python 依赖全部安装完成（共 {len(deps)} 个）")
+    log(f"✅ Python 依赖处理完成（共 {len(deps)} 个，其中已装跳过 {skipped} 个）")
     return True
 
 
@@ -117,18 +143,37 @@ def detect_gpu() -> bool:
         return False
 
 
-def install_torch(gpu: bool) -> bool:
+def install_torch(gpu: bool, force: bool = False) -> bool:
     """安装 torch + torchaudio：有 GPU 装 CUDA 版（cu128），否则 CPU 版。
 
+    已装且版本匹配时自动跳过（尤其避免重复下载 2.7GB CUDA 版）。
     无论哪种，本地转录引擎（SenseVoice/Paraformer）都仍是默认推理方式，
     GPU 只是加速，不改变「默认本地模型」的策略。
     """
+    # ── 已装检测：避免重复下载 ──
+    if not force:
+        try:
+            import torch  # noqa: F401
+            has_cuda = bool(torch.cuda.is_available())
+        except Exception:
+            has_cuda = False
+        else:
+            if gpu and has_cuda:
+                log("↷ torch 已装（CUDA 版，GPU 可用），跳过下载")
+                return True
+            if not gpu:
+                log("↷ torch 已装（可兼容 CPU 推理），跳过下载")
+                return True
+            # 想要 GPU 但当前是 CPU 版 → 需重装为 CUDA 版
+            log("⚠️ torch 已装但为 CPU 版、无 CUDA，将重装为 CUDA 版…")
     if gpu:
         # CUDA 版官方源（cu128 匹配绝大多数现代驱动）
+        log("   ⏳ 即将下载 CUDA 版 torch/torchaudio（约 2.7GB，可能耗时十余分钟）…")
         cmd = [sys.executable, "-m", "pip", "install", "torch", "torchaudio",
                "--index-url", "https://download.pytorch.org/whl/cu128"]
     else:
         # CPU 版走国内镜像
+        log("   ⏳ 即将下载 CPU 版 torch/torchaudio（约 200MB）…")
         cmd = [sys.executable, "-m", "pip", "install", "-i", PYPI_MIRRORS[0],
                "--trusted-host", urllib.parse.urlparse(PYPI_MIRRORS[0]).netloc,
                "torch", "torchaudio"]
@@ -245,6 +290,7 @@ def main():
     ap.add_argument("--ffmpeg-only", action="store_true", help="仅下载 ffmpeg")
     ap.add_argument("--deps-only", action="store_true", help="仅安装 Python 依赖")
     ap.add_argument("--extras", action="store_true", help="额外安装不推荐包（faster-whisper / pyannote.audio，默认不装）")
+    ap.add_argument("--force", action="store_true", help="忽略已装检测，强制重新安装/升级所有组件")
     ap.add_argument("--verify", action="store_true", help="仅做组件自检（review），不安装任何东西")
     a = ap.parse_args()
 
@@ -259,16 +305,20 @@ def main():
         sys.exit(0 if ok else 1)
 
     if not a.ffmpeg_only:
-        # 先装 torch（GPU 检测 → 装 CUDA 版，否则 CPU 版），
-        # 再装其余依赖；funasr 检测到 torch 已满足则不会再拉 CPU 版。
+        # 先确保 torch（GPU 检测 → 装 CUDA 版，否则 CPU 版），
+        # 再装其余依赖；已装且版本匹配的组件会自动跳过，不重复下载。
         gpu = detect_gpu()
         if gpu:
-            log("🔧 检测到 NVIDIA GPU，将安装 CUDA 版 torch/torchaudio（约 2.7GB，可能耗时十余分钟）…")
+            log("🔧 检测到 NVIDIA GPU，将确保安装 CUDA 版 torch/torchaudio（本地模型走 GPU 加速）…")
         else:
-            log("ℹ️ 未检测到 GPU，将安装 CPU 版 torch/torchaudio（约 200MB）…")
-        log("   若只想用云端 Qwen3-ASR-Flash（不装本地推理栈），可 Ctrl+C 后改用 `python setup_env.py --deps-only` 仅装轻量依赖。")
-        install_torch(gpu)
-        install_python_deps(extra=a.extras)
+            log("ℹ️ 未检测到 GPU，将确保安装 CPU 版 torch/torchaudio…")
+        if not a.force:
+            log("   （已装且版本匹配的组件会自动跳过，不会重复下载；用 `--force` 可强制重装）")
+        else:
+            log("   （--force：忽略已装检测，强制重装/升级所有组件）")
+        log("   若只想用云端 Qwen3-ASR-Flash（不装本地推理栈），可改用 `python setup_env.py --deps-only` 仅装轻量依赖。")
+        install_torch(gpu, force=a.force)
+        install_python_deps(extra=a.extras, force=a.force)
     if not a.deps_only:
         download_ffmpeg()
 

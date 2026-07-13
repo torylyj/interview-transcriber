@@ -22,6 +22,10 @@
 - **对策（已固化）**：`setup_env.py` 启动时**检测 NVIDIA GPU**（`nvidia-smi` 可用即认为有 GPU），有则装 CUDA 版 torch，无则 CPU 版。**默认仍是本地模型推理**，不切云端。
 - **注意**：换国内 CUDA 镜像不一定有 3.13 的 wheel，若 pytorch.org 太慢，宁可告知用户等待，不要贸然换源导致装不上。
 
+### 坑 1.3：setup_env.py 必须保持幂等（已装则跳过，勿改回无条件安装）
+- **现象（早期版本踩过）**：`install_python_deps` 对每个包无条件 `pip install`、`install_torch` 永远重装，导致已装环境（尤其 2.7GB CUDA torch）每次运行都重复下载，浪费十余分钟还可能再踩编译坑。
+- **对策（已固化）**：安装前用 `is_importable(mod)` 真实 import 探测；Python 依赖已装即跳过（`--force` 可强制重装）；`install_torch` 已装且版本匹配（要 GPU 且有 CUDA / 要 CPU 有 torch 即可）也跳过。今后新增/调整安装逻辑，**务必保持此幂等行为**，不要改回「无条件 pip install」。
+
 ---
 
 ## 2. SenseVoice 转录本身

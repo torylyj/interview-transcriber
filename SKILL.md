@@ -69,7 +69,7 @@ agent_created: true
 1. **先 review（不安装）**：运行 `python <skill_dir>/scripts/setup_env.py --verify`
    - 全 ✅ → 直接跳到 Step 1，无需安装。
    - 有 ❌ → 进入第 2 步安装。
-2. **安装**：`python <skill_dir>/scripts/setup_env.py`（逐包安装，单个失败不影响其他包，会自动记录漏装项并给出精准重试命令；ffmpeg 在 Windows 缺失时自动从国内镜像下载静态构建）。
+2. **安装**：`python <skill_dir>/scripts/setup_env.py`（**已装组件自动跳过、不重复下载**，逐包安装，单个失败不影响其他包，会自动记录漏装项并给出精准重试命令；ffmpeg 在 Windows 缺失时自动从国内镜像下载静态构建；`--force` 可强制重装所有组件）。
 3. **安装后必须再 review**：脚本装完会**自动跑一遍自检**并打印 PASS/FAIL 报告（也可单独 `python <skill_dir>/scripts/setup_env.py --verify` 复查）。**只有全部 ✅ 才进入 Step 1 转录；仍有 ❌ 则按报告里的精准命令补装对应组件，复查通过再继续。**
    - 切勿「装完就走」——这正是过去组件漏装、转录中途失败的根因。
 
