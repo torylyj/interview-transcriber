@@ -136,7 +136,7 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 ```
 python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "<output_dir>/<标题>.docx"
 ```
-直接渲染：标题、居中静帧（仅视频、`frame_path` 非 null）、内容摘要、人物信息表格、文档信息（含**时间码精度**标注）、采访记录（加粗说话人+时间码）。音频输入跳过静帧。依赖：`pip install python-docx pillow`。
+直接渲染：标题、居中静帧（仅视频、`frame_path` 非 null）、内容摘要、人物信息（无则省略／多人多表）、文档信息（含**时间码精度**标注）、采访记录（加粗说话人+时间码）。音频输入跳过静帧。依赖：`pip install python-docx pillow`。
 
 ### Step 3.9: 交付前预览与轻量确认（清理前）
 

@@ -119,24 +119,37 @@ def build(doc, data, base_dir):
                 add_inline_runs(p, para)
         doc.add_paragraph("")
 
-    # ── 受访人信息 ──
+    # ── 受访人信息（条件性：无信息整段省略；多人每人一个表格）──
     person_info = data.get("person_info") or []
     if person_info:
+        # 兼容两种结构：
+        #   新结构 = [{"name": "...", "fields": [{field,value}]}, ...]（支持多人）
+        #   旧结构 = [{"field": "...", "value": "..."}, ...]（单人，整体当一个人的字段）
+        new_style = isinstance(person_info[0], dict) and ("fields" in person_info[0])
+        people = person_info if new_style else [{"name": "", "fields": person_info}]
         doc.add_heading("\U0001F464 受访人信息", level=1)
-        table = doc.add_table(rows=1, cols=2)
-        try:
-            table.style = "Table Grid"
-        except Exception:
-            pass
-        # 表头
-        hdr = table.rows[0].cells
-        hdr[0].paragraphs[0].add_run("字段").bold = True
-        hdr[1].paragraphs[0].add_run("内容").bold = True
-        for item in person_info:
-            row = table.add_row().cells
-            add_inline_runs(row[0].paragraphs[0], item.get("field", ""))
-            add_inline_runs(row[1].paragraphs[0], item.get("value", ""))
-        doc.add_paragraph("")
+        for person in people:
+            name = person.get("name", "") if isinstance(person, dict) else ""
+            fields = person.get("fields", []) if isinstance(person, dict) else []
+            if not fields:
+                continue
+            if name:
+                pname = doc.add_paragraph()
+                pname.add_run(name).bold = True
+            table = doc.add_table(rows=1, cols=2)
+            try:
+                table.style = "Table Grid"
+            except Exception:
+                pass
+            # 表头
+            hdr = table.rows[0].cells
+            hdr[0].paragraphs[0].add_run("字段").bold = True
+            hdr[1].paragraphs[0].add_run("内容").bold = True
+            for item in fields:
+                row = table.add_row().cells
+                add_inline_runs(row[0].paragraphs[0], item.get("field", ""))
+                add_inline_runs(row[1].paragraphs[0], item.get("value", ""))
+            doc.add_paragraph("")
 
     # ── 文档信息 ──
     doc.add_heading("\U0001F4CB 文档信息", level=1)
@@ -185,10 +198,23 @@ def export_markdown(data, md_path):
     if frame_path:
         lines += [f"![人物静帧]({frame_path})", ""]
 
-    lines += ["---", "", "## \U0001F4DD 内容摘要", "", data.get("summary", ""), "", "---", "",
-              "## \U0001F464 受访人信息", "", "| 字段 | 内容 |", "|------|------|"]
-    for item in data.get("person_info") or []:
-        lines.append(f"| {item.get('field', '')} | {item.get('value', '')} |")
+    lines += ["---", "", "## \U0001F4DD 内容摘要", "", data.get("summary", ""), "", "---", ""]
+    person_info = data.get("person_info") or []
+    if person_info:
+        lines.append("## \U0001F464 受访人信息")
+        new_style = isinstance(person_info[0], dict) and ("fields" in person_info[0])
+        people = person_info if new_style else [{"name": "", "fields": person_info}]
+        for person in people:
+            name = person.get("name", "") if isinstance(person, dict) else ""
+            fields = person.get("fields", []) if isinstance(person, dict) else []
+            if not fields:
+                continue
+            if name:
+                lines.append(f"### {name}")
+            lines += ["", "| 字段 | 内容 |", "|------|------|"]
+            for item in fields:
+                lines.append(f"| {item.get('field', '')} | {item.get('value', '')} |")
+            lines.append("")
     lines += ["", "---", "", "## \U0001F4CB 文档信息", ""]
     tool = data.get("transcription_tool", "")
     tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "精确到秒"
