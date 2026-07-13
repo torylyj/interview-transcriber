@@ -31,10 +31,10 @@ print = functools.partial(print, flush=True)
 
 
 def with_timeout(seconds, func, *args, **kwargs):
-    """在子线程中运行阻塞调用并加硬超时。
+    """在子线程中运行阻塞调用并加超时。
 
-    超时或异常都让它**快速失败**、绝不无限挂起。超时直接 os._exit
-    终止进程，保证 bash 命令一定能返回（不会让上层 Agent 永久卡在等待里）。
+    超时或异常**抛出**（TimeoutError / 原异常），不再 os._exit 强制杀进程——
+    由调用方决定如何友好失败，避免把正在进行的模型下载一并杀死。
     """
     box = {}
 
@@ -48,14 +48,67 @@ def with_timeout(seconds, func, *args, **kwargs):
     t.start()
     t.join(seconds)
     if t.is_alive():
-        print(
-            f"❌ 操作超时（>{seconds}s）：很可能是模型下载 / 网络 / CUDA 卡住。"
-            f"请检查网络后重试，或先手动下载模型再运行。"
+        raise TimeoutError(
+            f"操作在 {seconds}s 内未完成（可能网络较慢 / 模型较大 / 推理卡住）。"
+            f"未强制终止进程；可重试，或先手动下载模型再运行。"
         )
-        os._exit(1)
     if "err" in box:
         raise box["err"]
     return box["val"]
+
+
+def load_model_with_status(model_key: str, kwargs: dict):
+    """加载 FunASR 模型，**不设硬超时**——网速慢也允许模型慢慢下载完。
+
+    行为：
+    - 模型在后台线程加载；主线程每 30s 打印一次进度（已用秒数）。
+    - 每累计满 600s 打印一条「⚠️ 已超 600s」状态横幅，提示调用方
+      （Agent）向用户报告现状并让用户选择「继续等待 / 中止」。
+    - **绝不主动 kill 进程**：要么加载完成返回模型，要么被外部中断
+      （Ctrl+C / Agent 中止后台任务）而退出。
+    """
+    cfg = MODEL_CONFIGS[model_key]
+    box = {}
+
+    def _load():
+        try:
+            from funasr import AutoModel
+            box["model"] = AutoModel(**kwargs)
+        except BaseException as e:  # noqa: BLE001
+            box["err"] = e
+
+    t = threading.Thread(target=_load, daemon=True)
+    t.start()
+
+    start = datetime.now()
+    WARN_EVERY = 600      # 每 600s 向调用方（Agent）提示一次，由其询问用户
+    POLL = 30
+    next_warn = WARN_EVERY
+    print(f"  ⏳ 模型加载中（{cfg['size']}，可能需从 ModelScope 下载）...")
+    while t.is_alive():
+        t.join(POLL)
+        if not t.is_alive():
+            break
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"  ⏳ 模型仍在加载（已 {int(elapsed)}s）...")
+        if elapsed >= next_warn:
+            print("")
+            print("  " + "=" * 56)
+            print(f"  ⚠️ 模型加载已超 {int(elapsed)}s（网络较慢 / 模型较大）。")
+            print("  ⚠️ 当前仍在后台继续下载，未做任何强制中断。")
+            print("  ⚠️ 若你（Agent）看到这条，请向用户报告现状并询问：")
+            print("        「模型下载较慢，已等待约 %d 分钟仍未完成，要继续等还是中止？」"
+                  % (int(elapsed) // 60))
+            print("        - 用户『继续』：保持进程运行，本脚本会继续直到完成；")
+            print("        - 用户『中止』：终止本任务（Ctrl+C / 停止后台进程），")
+            print("          已落盘的部分结果（_transcript.partial.json）可保留续跑。")
+            print("  " + "=" * 56)
+            print("")
+            next_warn += WARN_EVERY
+
+    if "err" in box:
+        raise box["err"]
+    return box["model"], model_key
 
 # ── 模型定义 ──────────────────────────────────────────────────
 # 仅保留阿里达摩院中文模型（魔搭社区国内直连，无需 HuggingFace）。
@@ -124,7 +177,9 @@ def load_funasr_model(model_key: str):
         kwargs["spk_model"] = cfg["funasr_spk"]
 
     try:
-        model = with_timeout(600, AutoModel, **kwargs)
+        # 模型加载不设硬超时：网速慢时允许慢慢下载完（超 600s 会打印
+        # 状态横幅，交由上层 Agent 向用户报告并询问继续/中止）。
+        model, model_key = load_model_with_status(model_key, kwargs)
         print(f"  ✅ {cfg['name']} 加载成功")
         return model, model_key
     except Exception as e:

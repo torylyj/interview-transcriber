@@ -28,8 +28,11 @@ print = functools.partial(print, flush=True)
 
 
 def with_timeout(seconds, func, *args, **kwargs):
-    """在子线程中运行阻塞调用并加硬超时；超时直接 os._exit 终止，
-    保证 bash 命令一定能返回，不会让上层 Agent 永久卡在等待里。"""
+    """在子线程中运行阻塞调用并加超时。
+
+    超时**抛出** TimeoutError（不再 os._exit 强制杀进程），由调用方
+    友好失败，避免上游流程被意外终止。
+    """
     box = {}
 
     def _run():
@@ -42,8 +45,9 @@ def with_timeout(seconds, func, *args, **kwargs):
     t.start()
     t.join(seconds)
     if t.is_alive():
-        print(f"❌ 调用通义千问超时（>{seconds}s）：可能是网络或服务端卡住，请稍后重试。")
-        os._exit(1)
+        raise TimeoutError(
+            f"调用超时（>{seconds}s）：可能是网络或服务端卡住，请稍后重试。"
+        )
     if "err" in box:
         raise box["err"]
     return box["val"]

@@ -189,6 +189,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v1.9.0 | 2026-07-14 | **取消 600s 强制终止，改为向用户报告并让用户选择**：① `transcribe_local.py` 模型加载（首次下载）**移除硬超时**，网速慢也能把模型下完；新增 `load_model_with_status()`，每累计满 600s 打印 `⚠️ 已超 600s` 状态横幅（不中断、继续下载）；② `with_timeout` 改为**超时抛异常**（不再 `os._exit` 强杀），`call_qwen.py` 同步；③ SKILL.md 明确 Agent 行为：转录后台启动并轮询，看到横幅即向用户报告并询问「继续/中止」，由用户决策。根治"网速慢时模型没下完就被 kill" |
 | v1.8.0 | 2026-07-14 | **技能更名 + 说话人统一中性命名 + 每轮配色标识**：① 技能名「采访转录成文档」→「音视频转文档」（更通用，采访仍覆盖）；② 说话人不再做采访者/受访人这类角色判定，统一按「首次出现顺序」中性命名为 说话人1、说话人2、说话人3……（`build_document.py` 的 `assign_speaker_labels` 按序编号，稳定可预期），真名/角色用 `--apply` 覆盖 `speaker_roles`（键为 说话人1/2/3）；③ 每个说话人一轮的「首次说话位置」用不同颜色的表情（🔴🟠🟡🟢🔵🟣…）标识，`.docx` 与上传用 Markdown 均生效，便于快速区分。文档全量同步。 |
 | v1.6.0 | 2026-07-14 | **默认本地模型切换为 Paraformer-large（高精度）**：不再默认下载 SenseVoice-small（small 模型中文精度不足）；SenseVoice 降级为可选轻量项（`--model sensevoice`，要速度/多语言/情感标签时用）。附：修复切换后 `build_document.py` 句级时间码 bug——Paraformer-VAD 返回真实句级 sentence_info，原按段索引对齐插值的逻辑会导致时间码错位/归零，改为「有真实时间码用真实跨度、SenseVoice 才回退插值」。中文准确率（尤其嘈杂/口音场景）与标点恢复均提升。 |
 | v1.7.0 | 2026-07-14 | **说话人分离交还模型（Paraformer + CAM++）**：本地不再依赖 LLM 语义切分——Paraformer-large 加载 `spk_model="cam++"`，单次 `generate()` 即产出「每句说话人 id + 真实句级时间码 + 标点」（按声纹自动聚类、无需指定人数、无需 HF Token）。`build_document.py` 改为按真实说话人聚合，仅剩轻量「角色命名」（`--auto` 按说话人聚合提问特征自动判采访者，`--apply` 可覆盖）；`--apply` schema 改为 `{speaker_roles, summary, person_info}`。彻底移除不可靠的逐句启发式与繁重的 LLM 切分，skill 大幅简化。 |
@@ -199,7 +200,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | v1.4.3 | 2026-07-13 | **长轮次自动分段**：`build_document.py` 将长独白按 ~160 字/4 句切成多段（每段带时间码），`.docx` 与在线文档均逐段呈现，根治"一大块难读" |
 | v1.4.2 | 2026-07-13 | **人物信息条件化（无则省略／多人多表）**：`person_info` 升级为支持多人（`[{name, fields}]`）；短视频未提个人信息时整段省略，多位人物各渲染独立表格；同步更新 `build_docx.py` 渲染与 `prompts.md` 提取指令 |
 | v1.4.1 | 2026-07-13 | **GPU 自动检测 + 标准 build_document.py**：`setup_env.py` 检测到 NVIDIA 即装 CUDA 版 torch（本地模型仍默认）；新增标准 `build_document.py` 消费结构化 `segments`，根除手写 `<|withitn|>` 切分导致段丢失的 bug |
-| v1.4.0 | 2026-07-13 | **健壮性加固（超时看门狗 + 环境自检防漏装）**：`transcribe_local.py`/`call_qwen.py` 加 `with_timeout` 硬超时看门狗（模型加载 600s / 单段 ASR 900s / LLM 调用 180s，超时 `os._exit` 快速失败），根治"转着转着就没声了"的卡死；`setup_env.py` 改为逐包安装 + 新增 `verify_environment()` 真实 import 自检 |
+| v1.4.0 | 2026-07-13 | **健壮性加固（超时看门狗 + 环境自检防漏装）**：`transcribe_local.py`/`call_qwen.py` 加 `with_timeout` 软超时（超时**抛异常友好退出**，不再 `os._exit` 强制杀进程）；模型加载不设硬超时（网速慢可慢慢下载完），单段 ASR 900s / LLM 调用 180s 超时抛异常后退出，根治"转着转着就没声了"的卡死；`setup_env.py` 改为逐包安装 + 新增 `verify_environment()` 真实 import 自检 |
 | v1.3.2 | 2026-07-11 | **静帧抽取优化（五等分，不软解整段）**：`extract_frame.py` 改为将视频严格**五等分**、从每段中心各抽 1 帧按清晰度比选最清晰帧，采用 ffmpeg 输入定位只解码目标点附近极少帧；并移除误入仓库的预览页 `docs/interview-transcriber.html` |
 | v1.3.1 | 2026-07-11 | **补充文档：性能预估 + 最低硬件配置**：新增「⏱️ 性能预估」与「💻 最低硬件配置」，并梳理修正若干表述（默认本地、SKILL 重复文本、模型下载体积范围） |
 | v1.3.0 | 2026-07-11 | **精简依赖（默认仅 5 包）+ 国内镜像连通性修复**：移出 faster-whisper / pyannote，说话人统一 LLM 语义切分；外网下载改国内镜像 |

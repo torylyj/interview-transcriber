@@ -78,7 +78,7 @@
 
 ### 坑 4.1：长任务后台被回收，误判完成
 - **现象**：GPU 转录任务在段 2 启动后进程被回收（ps 看不到进程），但段 1 跑完、段 2/3 没跑完，易误以为「完成了」。
-- **对策**：长命令放后台 + 轮询；**声明完成前必须核对产出文件存在且非空**（transcript.json / document.json / docx / 在线文档均查）。脚本已有 `with_timeout` 看门狗 + 分段落盘（`_transcript.partial.json`）兜底。
+- **对策**：长命令放后台 + 轮询；**声明完成前必须核对产出文件存在且非空**（transcript.json / document.json / docx / 在线文档均查）。脚本已有 `with_timeout` 软超时（超时抛异常，不再 `os._exit` 强杀）+ 分段落盘（`_transcript.partial.json`）兜底；**模型加载不设硬超时**，网速慢也会慢慢下载完，超 600s 仅打印状态横幅提示 Agent 询问用户。
 
 ### 坑 4.2：Windows 路径 / 工具差异
 - `ffmpeg/ffprobe` 是原生 Windows 程序，**不认 Git Bash 的 `/h/` 虚拟路径**，要给 `H:/...` 这种 Windows 风格路径。
