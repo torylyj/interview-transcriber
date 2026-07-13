@@ -110,7 +110,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 ## 📄 输出文档结构
 
-> 以下为文档内容结构；最终以 **Word 文档（.docx）** 形式交付，由 `scripts/build_docx.py` 直接读取结构化 JSON 生成，**全程无 Markdown 中间文件**。
+> 以下为文档内容结构；最终以 **Word 文档（.docx）** 形式交付，由 `scripts/build_docx.py` 直接读取结构化 JSON 生成（分发到在线平台时导出临时 Markdown，上传后即删）。
 
 1. **人物静帧**（仅视频输入）— 视频中人物画面截图（居中显示）；音频输入时无此行
 2. **内容摘要** — 3–5 句话概括采访核心内容
@@ -178,7 +178,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 - **多段采访合并**：必须**明确告知哪几个文件属于同一段采访**，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。
 - **智能静帧**：由 `scripts/extract_frame.py` 将视频**五等分、各抽 1 帧**并按清晰度比选最清晰的一张（输入定位，不软解整段视频，避免黑屏/字幕遮挡帧）。
 - **默认本地转录**：默认 SenseVoice 离线可用、无需配置；仅当需要更高准确率或提供 DashScope API Key 时才切云端。
-- **时间码精度**：本地精确到秒；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
+- **时间码精度**：本地为句级插值估算（段落边界精确，段内为估算值）；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
 - **Windows 路径**：使用正斜杠 `/`，避免中文路径传给 API。
 - **长文本处理**：LLM 单次输入建议不超过 8000 字符，超长需分段。
 - **在线文档上传**：部分平台 API 限制内容长度，超长文档需分段上传。
@@ -189,7 +189,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 日期 | 内容 |
 |------|------|
-| 2026-07-13 | **经验固化（踩坑清单 gotchas.md）**：将本次真实环境（Win+Py3.13无编译器+RTX4070+钉钉dws）跑通全流程踩的坑全部写进 `references/gotchas.md` 并同步 SKILL.md：① 修正两处与事实不符旧陈述（"sentence_timestamp 精确到秒"→实为插值估算、段落边界才精确；"启发式可直接用"→须 LLM 复核）；② 钉钉硬性规则（图片须 `dws doc media insert` 上传、同主题 `overwrite` 勿新建、`auth status` 卡顿、未经授权不发消息）；③ `build_document.py --auto-speakers` 加"不可直接交付、须 LLM 复核"告警 |
+| 2026-07-13 | **PM 视角整改（去个人化 + 闭环工具化）**：① 删掉钉钉个人身份/收件人等"错误案例"，分发规则泛化为通用最佳实践（修订复用同一文档、未经授权不发消息等保留为安全规则）；② 修 P0 事实矛盾——`output_schema.md` 不再写"本地模式精确到秒"，与 `build_docx.py`/`gotchas` 一致为"句级插值估算、段落边界精确"；③ 补上说话人识别工具断点：`build_document.py` 新增 `--apply corrections.json`，Agent（方式 A）复核后一键落盘最终 `document.json`，不再手改嵌套 JSON；④ `build_docx.py` 新增 `--no-frame`，在线导出 Markdown 不再写入打不开的本地图路径；⑤ 新增 `prepare.py` 一键生成 `transcribe_config.json`（自动识别类型/抽静帧/转码/切段），消除手写 JSON 胶水；⑥ 诚实化定位：display_name 去"秒变"、描述与 Step 2.5 主动交代首跑需下载模型（GPU 版约 2.7GB）及本地/云端取舍；`setup_env.py` 下载前打印体积预警；⑦ Step 5 清理保留 `_document.json`（可编辑事实源，修订 overwrite 时复用，无需重跑转录）；⑧ `transcribe_local.py` 元数据不再把本地模式误标为 qwen-plus；`prompts.md` 云端 方法A 与"仅段级时间戳"的实际输出对齐 |
 | 2026-07-13 | **长轮次自动分段**：`build_document.py` 将长独白按 ~160 字/4 句切成多段（每段带时间码），`.docx` 与在线文档均逐段呈现，根治"一大块难读" |
 | 2026-07-13 | **GPU 自动检测 + 标准 build_document.py**：`setup_env.py` 检测到 NVIDIA 即装 CUDA 版 torch（本地模型仍默认）；新增标准 `build_document.py` 消费结构化 `segments`，根除手写 `<|withitn|>` 切分导致段丢失的 bug |
 | 2026-07-13 | **人物信息条件化（无则省略／多人多表）**：输出结构 `person_info` 升级为支持多人（`[{name, fields}]`）；短视频未提个人信息时整段省略，多位受访人各渲染独立表格；同步更新 `build_docx.py` 渲染逻辑与 `prompts.md` 提取指令 |
@@ -209,7 +209,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | 2026-07-09 | README 新增「使用说明」章节，包含基本用法、输出结果、常见示例和首次准备 |
 | 2026-07-09 | 本地转录新增多模型支持：SenseVoice / Paraformer（阿里达摩院中文模型，魔搭社区下载）+ faster-whisper large-v3，替代原 faster-whisper medium |
 | 2026-07-09 | 新增 Step 2.5：转录前询问用户选择转录方式，明确告知本地转录质量差异 |
-| 2026-07-09 | 新增对话时间码：每轮对话标注 [MM:SS]，云端段级精度，本地精确到秒 |
+| 2026-07-09 | 新增对话时间码：每轮对话标注 [MM:SS]，云端段级精度，本地为句级插值估算（段落边界精确） |
 | 2026-07-09 | 适配多种 AI Agent（Claude Code、Codex 等）；统一使用"采访"表述 |
 | 2026-07-09 | 新增 Step 3.6：LLM 生成内容摘要与人物信息，置于文档正文最前面 |
 | 2026-07-01 | 初始版本：完整工作流程（预处理→转录→说话人识别→分发） |

@@ -49,19 +49,19 @@
 
 ### 坑 3.1：在线文档无法渲染本地图片路径
 - **现象**：`.docx` 里的静帧图是本地路径 `H:/.../人物静帧.jpg`，写进在线文档 Markdown 后**不显示**（在线文档不认本地路径）。
-- ⚠️ **硬性规则**：要往在线文档放图，必须用 `dws doc media insert --node <nodeId> --file <本地图> --index 0`（三步：取上传凭证 → 传 OSS → 插块）。导出上传用 Markdown 时，**先剥离本地图片行**（`![…](…)` 且含 `H:/` 的行），改由 media insert 上传；原 .docx 才保留本地图。
+- ⚠️ **硬性规则**：要往在线文档放图，必须用 `dws doc media insert --node <nodeId> --file <本地图> --index 0`（三步：取上传凭证 → 传 OSS → 插块）。导出上传用 Markdown 时，给 `build_docx.py` 加 `--no-frame` 参数（脚本不再写入本地图片行）；原 .docx 才保留本地图。
 
 ### 坑 3.2：`dws auth status` 会卡 2 分钟
 - **现象**：该命令卡 2 分钟无返回（疑似到钉钉服务网络慢）；但 `doc search/create/send` 等**业务命令正常**。
-- **对策**：别依赖 `auth status` 判断登录态（OAuth 身份已知为「李焱杰」），直接试探业务命令；或给 dws 统一加 `--timeout`。
+- **对策**：别依赖 `auth status` 判断登录态，直接试探业务命令（`doc search/create/send` 正常即已登录）；或给 dws 统一加 `--timeout`。
 
 ### 坑 3.3：同主题重复建文档
 - **现象**：同一采访二改三改，若每次 `doc create` 会多出冗余文件。
-- ⚠️ **用户硬性约定**：「只保留一个在线文档，不要新增其他冗余文件」。修订同一采访时用 `dws doc update --mode overwrite`（配合 `--content-file`），**勿再 `doc create`**。新采访才 create。
+- ⚠️ **修订同一采访请复用同一文档**：用 `dws doc update --mode overwrite`（配合 `--content-file`）覆盖，**勿再 `doc create`** 新建，避免冗余；新采访才 create。
 
 ### 坑 3.4：未经授权发钉钉消息
 - **现象**：覆盖文档（overwrite）用户无异议，但 `chat message send` 发消息需明确同意。
-- ⚠️ **硬性规则**：`dws doc update/overwrite` 无需每次问；但 `dws chat message send` **必须用户明确授权**才执行。用户说「不要发给 XX」时，本次起及后续都不再发。
+- ⚠️ **硬性规则**：`dws doc update/overwrite` 无需每次问；但 `dws chat message send` **必须用户明确授权**才执行。用户明确说不要发给某人时，本次及后续都不再发。
 
 ---
 

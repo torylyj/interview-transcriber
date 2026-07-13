@@ -1,18 +1,18 @@
 ---
 name: interview-transcriber
-display_name: 采访秒变 Word
+display_name: 采访转录成文档
 description: |
-  采访转录全流程处理技能（支持视频与音频输入，也支持「一个采访拆成多段文件」合并转录）。默认本地转录（SenseVoice/Paraformer 魔搭社区中文模型，离线可用、无需 API Key）；可选云端转录（Qwen3-ASR-Flash，准确率更高，需 DashScope API Key）作为升级方案。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> LLM 智能说话人识别（统一语义切分，免 HuggingFace Token，支持多说话人，保留时间码） -> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx，全程无 Markdown 中间文件）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
+  采访转录全流程处理技能（支持视频与音频输入，也支持「一个采访拆成多段文件」合并转录）。默认本地转录（SenseVoice/Paraformer 魔搭社区中文模型，离线可用、无需 API Key；⚠️ 首次运行需联网下载本地模型 ~500MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）。可选云端转录（Qwen3-ASR-Flash，准确率更高，需 DashScope API Key）。⚠️ 开始前请主动向用户说明两种方式的取舍（本地免费但精度一般且首次慢；云端更准但需 Key），由用户选择，默认本地。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> LLM 智能说话人识别（统一语义切分，免 HuggingFace Token，支持多说话人，时间码为插值估算）-> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
   若用户把一个采访拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段采访，技能自动合并转录为一篇文档。
   适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后主动询问用户交付位置，并提示云端转录作为更高精度的可选方案。
 agent_created: true
 ---
 
-# 采访秒变 Word（interview-transcriber）
+# 采访转录成文档（interview-transcriber）
 
 ## 概述
 
-将采访内容（视频或音频，也可是一段采访被拆成的多个文件）全流程处理为带说话人识别的转录文档。核心流程始终执行：输入预处理 → 默认本地转录（SenseVoice，离线可用）→ 模型按能力自动决定是否切段 → 说话人识别（支持多说话人）→ 生成摘要与人物信息 → 直接生成 Word 文档（.docx，全程无 Markdown 中间文件）→ 自检精简语气词 → 交付前预览确认 → 可选分发。全部完成后主动询问用户交付位置，并提示云端转录作为更高精度可选方案。
+将采访内容（视频或音频，也可是一段采访被拆成的多个文件）全流程处理为带说话人识别的转录文档。核心流程始终执行：输入预处理 → 默认本地转录（SenseVoice，离线可用）→ 模型按能力自动决定是否切段 → 说话人识别（支持多说话人）→ 生成摘要与人物信息 → 直接生成 Word 文档（.docx）→ 自检精简语气词 → 交付前预览确认 → 可选分发。全部完成后主动询问用户交付位置，并提示云端转录作为更高精度可选方案。
 
 **转录方式（默认本地）：** 默认本地转录（SenseVoice，从魔搭社区下载，无需 API Key，离线可用）；仅当用户明确要求更高准确率或提供 DashScope API Key 时才切换云端 Qwen3-ASR-Flash。详见 references/model_download.md。
 
@@ -56,7 +56,7 @@ agent_created: true
 - **本地时间码是插值估算，不是精确到秒**：SenseVoice 的 `sentence_timestamp` 对该模型不生效，每段仍是整块；逐句时间码由「标点切句 + 各段偏移/时长线性插值」得到——段内为估算值、段落边界才精确。
 - **钉钉在线文档无法渲染本地图片路径**：`H:/...jpg` 不显示，必须用 `dws doc media insert` 把图真正上传插入。
 - **钉钉 `dws auth status` 会卡 2 分钟**：别依赖它，直接试业务命令（doc search/create/send 正常即已登录）。
-- **同主题二改三改用 overwrite，不要新建**：用户约定「只保留一个在线文档」；修订同一采访用 `dws doc update --mode overwrite`，勿再 `doc create`。
+- **同主题二改三改用 overwrite，不要新建**：修订同一采访复用同一文档（`dws doc update --mode overwrite`），勿重复新建造成冗余；新采访才 `doc create`。
 - **未经明确授权不发钉钉消息**：覆盖文档（overwrite）无需每次问，但 `chat message send` 必须用户明确同意。
 
 ## 工作流程
@@ -103,9 +103,13 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 ### Step 2.5: 确定转录方式（默认本地）
 
-默认本地（`mode: "local"`，SenseVoice），**不打断询问**。仅当用户明确要求云端/提供 Key，或要求其他本地模型时才切换。配置 `transcribe_config.json`：
+默认本地（`mode: "local"`，SenseVoice），**不打断询问**。仅当用户明确要求云端/提供 Key，或要求其他本地模型时才切换。
 
-**首次转录提醒（必须执行）：** 在真正运行转录脚本（Step 3）之前，必须先用一句话告知用户——「本次为首次转录，将联网下载本地模型（SenseVoice 约 500MB），耗时约 1–5 分钟，请耐心等待；下载完成后会自动缓存，之后转录秒级启动」。脚本 `transcribe_local.py` 启动时也会打印同样提示。这样做是为避免用户面对数分钟静默误以为卡死。
+> ⚠️ **开始前一句话交代取舍**（避免用户误以为卡死/误判质量）：本地免费、离线、但首次需下载模型（SenseVoice ~500MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）且精度一般；云端 Qwen3-ASR-Flash 更准但需 DashScope API Key。用户未指定则按本地执行，但建议主动提一句「如需更高准确率可随时切云端」。
+
+配置 `transcribe_config.json`（也可先用 `python <skill_dir>/scripts/prepare.py <输入>` 一键生成：自动识别类型、抽静帧、转 MP3、按模型能力切段、写入 config）：
+
+**首次转录提醒（必须执行）：** 在真正运行转录脚本（Step 3）之前，必须先用一句话告知用户——「本次为首次转录，将联网下载本地模型（SenseVoice 约 500MB + torch 推理栈，GPU 版约 2.7GB），耗时数分钟，请耐心等待；下载完成后会自动缓存，之后转录秒级启动」。脚本 `transcribe_local.py` 启动时也会打印同样提示。这样做是为避免用户面对数分钟静默误以为卡死。
 - 云端（`mode: "cloud"`）：需 `api_key`；本地（`mode: "local"`）：`model` 默认 sensevoice（可选 paraformer）。说话人统一由 Step 3.5 LLM 语义切分（免 HF Token），群访等多个说话人同样支持。
 - 配置模板（cloud/local）见 references/dashscope_setup.md；模型下载/镜像/HF Token 说明见 references/model_download.md。
 
@@ -146,12 +150,16 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 # 1) 先看逐句解析 + 建议角色（采访者/受访人），供 Agent 复核
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" --review
 
-# 2) 启发式自动分角色 + 写出 document.json（summary/person_info 由 Agent 填）
+# 2) 启发式自动分角色 + 写出 document.json（summary/person_info 由 Agent 填，仅作初分）
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --auto-speakers
+
+# 3) Agent 复核后用 corrections.json 落盘最终 document.json（推荐，避免手改 JSON）
+#    corrections.json = {"speakers": {"0":"采访者","1":"受访人", ...}, "summary":"…", "person_info":[…]}
+python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --apply corrections.json
 ```
 
 - 脚本消费 `transcript.json` 的 `segments`（每段一块连续文本，SenseVoice 默认整段一块、无句分隔）。⚠️ 注意：本地 SenseVoice 的 `sentence_timestamp` **对该模型不生效**（每段仍整块），逐句时间码由本脚本「按标点切句 + 各段偏移/时长线性插值」得到——**段内为估算值，段落边界才精确，勿标「精确到秒」**。无需再解析 `raw_text`。
-- 说话人角色：默认启发式初分（问句/短插话判为采访者）**仅作初分**；Agent 必须经 `--review` 逐句复核后在 `document.json` 的 `conversation[].speaker` 直接修正（采访者/受访人/记者乙…）。⚠️ **`--auto-speakers` 的直接输出绝不可作为最终交付**（启发式在本批实测中误判 20+ 处，严重失真），必须经 LLM 语义复核。
+- 说话人角色：默认启发式初分（问句/短插话判为采访者）**仅作初分**。`--auto-speakers` 的直接输出**绝不可作为最终交付**（启发式在本批实测中误判 20+ 处，严重失真）。⚠️ **推荐闭环（方式 A，Agent 自身即 LLM，免 API Key）**：① `python build_document.py transcript.json --review` 打印带 `idx` 与建议角色的逐句清单；② Agent 逐句判定采访者/受访人，把结果写成 `corrections.json`：`{"speakers": {"0":"采访者","1":"受访人", ...}, "summary":"…", "person_info":[…]}`（summary/person_info 一并填入，无则留空）；③ `python build_document.py transcript.json document.json --apply corrections.json` 自动按 idx 映射角色、合并连续同角色为 turn，写出最终 `document.json`（无需手改嵌套 JSON，避免出错）。
 - 随后 Agent 把 Step 3.6 的 `summary` 与 `person_info` 写入同一 `document.json`（无信息则 `person_info: []` 整段省略；多人多表）。
 - 也可 `import` 本脚本的 `parse_sentences / assign_roles / assemble_document` 在 Agent 代码里直接调用。
 - **长轮次自动分段**：`group_turns` 会把长独白（如受访人一口气讲 1000+ 字）按 ~160 字或 4 句切成多段，每段带首句时间码；`build_docx.py` 的 `.docx` 与 Markdown 均逐段输出，避免一大块难读。
@@ -173,20 +181,21 @@ python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "
 
 ### Step 4: 输出与分发
 
-本地 `.docx` 始终生成。可选分发：钉钉/飞书/腾讯文档（用 `build_docx.py --export-md` 生成临时 `_upload.md` 上传后即删）/ 本地文件 / 直接粘贴。上传失败保留本地 `.docx` 兜底。
+本地 `.docx` 始终生成。可选分发：钉钉/飞书/腾讯文档（用 `build_docx.py --export-md --no-frame` 生成临时 `_upload.md`——`--no-frame` 避免写入打不开的本地图路径，上传后即删）/ 本地文件 / 直接粘贴。上传失败保留本地 `.docx` 兜底。
 
 **钉钉分发硬性规则（详见 references/gotchas.md §3）：**
-- **图片必须用 `dws doc media insert` 上传**：在线文档 Markdown **不渲染本地路径**（如 `H:/.../人物静帧.jpg`），直接写进去不显示。正确做法：① 导出上传用 `_upload.md` 时**先剥离本地图片行**；② 用 `dws doc media insert --node <nodeId> --file <本地图> --index 0` 把图真正上传插入（三步：取上传凭证→传 OSS→插块）。原 `.docx` 才保留本地图。
-- **同主题 reuse 用 overwrite，勿新建**：用户约定「只保留一个在线文档，不要新增冗余文件」。新采访才 `dws doc create`；修订同一采访用 `dws doc update --mode overwrite`（配合 `--content-file`）。
-- **`dws auth status` 会卡 ~2 分钟**：别用它判断登录态（已知 OAuth 身份「李焱杰」），直接试探 `doc search/create/send` 等**业务命令**，正常即已登录。
-- **未经明确授权不发消息**：`dws doc update/overwrite` 无需每次问；但 `dws chat message send` **必须用户明确同意**才执行。用户说「不要发给 XX」时，本次及后续都不再发。
+- **图片必须用 `dws doc media insert` 上传**：在线文档 Markdown **不渲染本地路径**（如 `H:/.../人物静帧.jpg`），直接写进去不显示。正确做法：① 导出上传用 `_upload.md` 时加 `--no-frame` 参数（脚本不再写入本地图片行）；② 用 `dws doc media insert --node <nodeId> --file <本地图> --index 0` 把图真正上传插入（三步：取上传凭证→传 OSS→插块）。原 `.docx` 才保留本地图。
+- **同主题 reuse 用 overwrite，勿新建**：修订同一采访复用同一文档（`dws doc update --mode overwrite` 配合 `--content-file`）覆盖，避免冗余；新采访才 `dws doc create`。
+- **`dws auth status` 会卡 ~2 分钟**：别用它判断登录态，直接试探 `doc search/create/send` 等**业务命令**，正常即已登录。
+- **未经明确授权不发消息**：`dws doc update/overwrite` 无需每次问；但 `dws chat message send` **必须用户明确同意**才执行。用户明确说不要发给某人时，本次及后续都不再发。
 
 ### Step 5: 清理临时文件
 
 ```bash
-rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments.json transcribe_config.json 输出.mp3
+# 保留 <标题>_document.json（可编辑的事实源，修订/overwrite 时复用，无需重跑转录）
+rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json *segments.json transcribe_config.json 输出.mp3
 ```
-保留：`<标题>.docx`、人物静帧.jpg（仅视频）。
+保留：`<标题>.docx`、`<标题>_document.json`、人物静帧.jpg（仅视频）。
 
 ### Step 6: 询问交付位置（收尾）
 
@@ -236,4 +245,4 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments
 - **长文本 LLM 分段**：单次输入 ≤ 8000 字符，超长分段后合并
 - **时间码精度**：本地段内为插值估算（段落边界精确）；云端段内为估算值（4 分钟粒度）；文档已如实标注，勿当精确时间
 - **收尾必须主动询问交付位置**（Step 6），未经确认不上传外部平台
-- **最终交付 .docx，全程无 Markdown 中间文件**：转录脚本输出 `_transcript.json`，Agent 写 `_document.json`，`build_docx.py` 直接生成 .docx
+- **最终交付 .docx**：转录脚本输出 `_transcript.json`，Agent 写 `_document.json`，`build_docx.py` 直接生成 .docx（分发到在线平台时导出临时 Markdown，上传后即删）

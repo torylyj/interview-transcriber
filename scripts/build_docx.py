@@ -198,12 +198,16 @@ def build(doc, data, base_dir):
             add_inline_runs(p_text, txt)
 
 
-def export_markdown(data, md_path):
-    """将结构化文档导出为临时 Markdown（供在线平台上传；上传后即删）。"""
+def export_markdown(data, md_path, skip_frame=False):
+    """将结构化文档导出为临时 Markdown（供在线平台上传；上传后即删）。
+
+    skip_frame=True 时不写入本地静帧路径（在线平台用），
+    改由 `dws doc media insert` 上传，避免在线文档出现打不开的本地图。
+    """
     lines = [f"# {data.get('title', '转录文档')}", ""]
 
     frame_path = data.get("frame_path")
-    if frame_path:
+    if frame_path and not skip_frame:
         lines += [f"![人物静帧]({frame_path})", ""]
 
     lines += ["---", "", "## \U0001F4DD 内容摘要", "", data.get("summary", ""), "", "---", ""]
@@ -263,6 +267,8 @@ def main():
     parser.add_argument("input", help="输入的文档 JSON 文件路径（_document.json）")
     parser.add_argument("output", help="输出 .docx 路径")
     parser.add_argument("--export-md", default=None, help="额外导出临时 Markdown 的路径（可选）")
+    parser.add_argument("--no-frame", action="store_true",
+                        help="导出 Markdown 时不写入本地静帧路径（在线平台用，图改由 dws doc media insert 上传）")
     args = parser.parse_args()
 
     # 归一化路径（兼容 Git Bash 的 /c/... 写法，否则 Windows 原生程序找不到文件）
@@ -285,7 +291,7 @@ def main():
     print(f"✅ Word 文档已生成: {args.output}")
 
     if args.export_md:
-        export_markdown(data, args.export_md)
+        export_markdown(data, args.export_md, skip_frame=args.no_frame)
 
 
 if __name__ == "__main__":

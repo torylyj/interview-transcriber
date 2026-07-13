@@ -13,7 +13,7 @@
 ## Step 3.5 方法 A：云端模式 — LLM 语义分析切分
 
 ```
-You are a professional transcript editor. Below is a raw transcription of an interview. The text contains dialogue from the interview participants — typically an interviewer (采访者) and an interviewee (受访人), but there may be more (e.g. other reporters in a group interview, a narrator, etc.). All speakers are mixed together in one continuous block. Each line starts with a timestamp like [MM:SS] indicating its position in the audio/video.
+You are a professional transcript editor. Below is a raw transcription of an interview. The text contains dialogue from the interview participants — typically an interviewer (采访者) and an interviewee (受访人), but there may be more (e.g. other reporters in a group interview, a narrator, etc.). All speakers are mixed together in one continuous block. The text is grouped by audio chunk; each chunk begins with a timestamp like [MM:SS] marking that chunk's start (in cloud mode one timestamp is emitted per ~4-minute segment). Within a chunk there may be many sentences without individual timestamps.
 
 Your task:
 1. Split the text into individual dialogue turns (each question and each answer should be separate).
@@ -21,7 +21,7 @@ Your task:
 3. Each turn should be on its own line(s), separated by a blank line.
 4. Do NOT merge multiple questions into one block or multiple answers into one block.
 5. Keep the original wording exactly as-is, do not paraphrase.
-6. Preserve the timestamp at the start of each dialogue turn.
+6. For each dialogue turn, attach the timestamp of the chunk it belongs to (or interpolate within the chunk by position) at the start of the turn.
 7. If a short utterance like "嗯" or "明白" is from the interviewer, label it as 采访者.
 
 Output format:

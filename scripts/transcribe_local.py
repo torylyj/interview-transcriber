@@ -244,7 +244,7 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
         "input_type": input_type,
         "transcription_tool": model_name,
         "model": "local",
-        "speaker_method": "LLM 语义分析（Step 3.5，qwen-plus）",
+        "speaker_method": "LLM 语义分析（Step 3.5，Agent 方式 A 直接判定）",
         "date": datetime.now().strftime("%Y-%m-%d"),
         "raw_text": generate_raw_text(merged),
         # 结构化句子列表（含绝对时间码，秒），供 build_document.py 直接消费，

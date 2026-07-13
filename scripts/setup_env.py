@@ -263,9 +263,10 @@ def main():
         # 再装其余依赖；funasr 检测到 torch 已满足则不会再拉 CPU 版。
         gpu = detect_gpu()
         if gpu:
-            log("🔧 检测到 NVIDIA GPU，安装 CUDA 版 torch/torchaudio（本地模型将走 GPU 加速，仍默认本地推理）")
+            log("🔧 检测到 NVIDIA GPU，将安装 CUDA 版 torch/torchaudio（约 2.7GB，可能耗时十余分钟）…")
         else:
-            log("ℹ️ 未检测到 GPU，安装 CPU 版 torch/torchaudio")
+            log("ℹ️ 未检测到 GPU，将安装 CPU 版 torch/torchaudio（约 200MB）…")
+        log("   若只想用云端 Qwen3-ASR-Flash（不装本地推理栈），可 Ctrl+C 后改用 `python setup_env.py --deps-only` 仅装轻量依赖。")
         install_torch(gpu)
         install_python_deps(extra=a.extras)
     if not a.deps_only:
