@@ -133,7 +133,7 @@ def transcribe_funasr(model, audio_path: str, model_key: str) -> list:
 
     try:
         if model_key == "sensevoice":
-            gen_kwargs = dict(input=audio_path, language="zh", use_itn=True)
+            gen_kwargs = dict(input=audio_path, language="zh", use_itn=True, sentence_timestamp=True)
         else:  # paraformer
             gen_kwargs = dict(input=audio_path, batch_size_s=300)
         result = with_timeout(900, model.generate, **gen_kwargs)
@@ -247,6 +247,9 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
         "speaker_method": "LLM 语义分析（Step 3.5，qwen-plus）",
         "date": datetime.now().strftime("%Y-%m-%d"),
         "raw_text": generate_raw_text(merged),
+        # 结构化句子列表（含绝对时间码，秒），供 build_document.py 直接消费，
+        # 免去再次解析 raw_text 造成的切分错位（见 2026-07-13 的 bug 修复）。
+        "segments": merged,
     }
 
 

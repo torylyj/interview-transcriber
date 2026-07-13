@@ -154,7 +154,7 @@ def build(doc, data, base_dir):
     # ── 文档信息 ──
     doc.add_heading("\U0001F4CB 文档信息", level=1)
     tool = data.get("transcription_tool", "")
-    tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "精确到秒"
+    tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "句级时间码为文本长度插值估算（段落边界精确）"
     info_lines = [
         f"源文件：{data.get('source_file', '')}",
         f"输入类型：{data.get('input_type', '')}",
@@ -217,7 +217,7 @@ def export_markdown(data, md_path):
             lines.append("")
     lines += ["", "---", "", "## \U0001F4CB 文档信息", ""]
     tool = data.get("transcription_tool", "")
-    tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "精确到秒"
+    tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "句级时间码为文本长度插值估算（段落边界精确）"
     lines += [
         f"> 源文件：{data.get('source_file', '')}",
         f"> 输入类型：{data.get('input_type', '')}",

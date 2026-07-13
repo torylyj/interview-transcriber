@@ -102,6 +102,45 @@ def install_python_deps(extra: bool = False):
     return True
 
 
+def detect_gpu() -> bool:
+    """检测是否有可用的 NVIDIA GPU（用于选择 torch 版本）。"""
+    # 优先用已装的 torch 直接探；未装则退化为 nvidia-smi
+    try:
+        import torch
+        return bool(torch.cuda.is_available())
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(["nvidia-smi"], capture_output=True, timeout=15)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def install_torch(gpu: bool) -> bool:
+    """安装 torch + torchaudio：有 GPU 装 CUDA 版（cu128），否则 CPU 版。
+
+    无论哪种，本地转录引擎（SenseVoice/Paraformer）都仍是默认推理方式，
+    GPU 只是加速，不改变「默认本地模型」的策略。
+    """
+    if gpu:
+        # CUDA 版官方源（cu128 匹配绝大多数现代驱动）
+        cmd = [sys.executable, "-m", "pip", "install", "torch", "torchaudio",
+               "--index-url", "https://download.pytorch.org/whl/cu128"]
+    else:
+        # CPU 版走国内镜像
+        cmd = [sys.executable, "-m", "pip", "install", "-i", PYPI_MIRRORS[0],
+               "--trusted-host", urllib.parse.urlparse(PYPI_MIRRORS[0]).netloc,
+               "torch", "torchaudio"]
+    try:
+        subprocess.run(cmd, check=True)
+        log("✅ torch/torchaudio 安装成功" + ("（CUDA 版，本地模型走 GPU 加速）" if gpu else "（CPU 版）"))
+        return True
+    except subprocess.CalledProcessError as e:
+        log(f"❌ torch 安装失败：{e}")
+        return False
+
+
 def which(prog):
     return shutil.which(prog)
 
@@ -220,6 +259,14 @@ def main():
         sys.exit(0 if ok else 1)
 
     if not a.ffmpeg_only:
+        # 先装 torch（GPU 检测 → 装 CUDA 版，否则 CPU 版），
+        # 再装其余依赖；funasr 检测到 torch 已满足则不会再拉 CPU 版。
+        gpu = detect_gpu()
+        if gpu:
+            log("🔧 检测到 NVIDIA GPU，安装 CUDA 版 torch/torchaudio（本地模型将走 GPU 加速，仍默认本地推理）")
+        else:
+            log("ℹ️ 未检测到 GPU，安装 CPU 版 torch/torchaudio")
+        install_torch(gpu)
         install_python_deps(extra=a.extras)
     if not a.deps_only:
         download_ffmpeg()

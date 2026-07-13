@@ -127,6 +127,23 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 **写入 `<标题>_document.json`**（字段定义见 references/output_schema.md）。该 JSON 由 Step 3.8 直接生成 .docx，**全程不生成 Markdown**。
 
+### Step 3.65: 用 build_document.py 组装 document.json（标准实现，修切分 bug）
+
+把 Step 3.5/3.6 的结果落盘为标准化 `<标题>_document.json`，**统一走脚本**而非临时正则切分（2026-07-13 复盘：手写切分曾把 SenseVoice 的 `<|withitn|>` 当段间分隔，导致段 1 整段丢失、段 3 丢失、时间码错乱；本脚本直接消费 `transcript.json` 的结构化 `segments`，根除该问题）。
+
+```bash
+# 1) 先看逐句解析 + 建议角色（采访者/受访人），供 Agent 复核
+python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" --review
+
+# 2) 启发式自动分角色 + 写出 document.json（summary/person_info 由 Agent 填）
+python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --auto-speakers
+```
+
+- 脚本消费 `transcript.json` 的 `segments`（逐句、含绝对时间码；本地 SenseVoice 已开 `sentence_timestamp`，精确到秒），无需再解析 `raw_text`。
+- 说话人角色：默认启发式初分（问句/短插话判为采访者），Agent 经 `--review` 复核后在 `document.json` 的 `conversation[].speaker` 直接修正（采访者/受访人/记者乙…）。
+- 随后 Agent 把 Step 3.6 的 `summary` 与 `person_info` 写入同一 `document.json`（无信息则 `person_info: []` 整段省略；多人多表）。
+- 也可 `import` 本脚本的 `parse_sentences / assign_roles / assemble_document` 在 Agent 代码里直接调用。
+
 ### Step 3.7: 自检与语气词精简（生成文档后执行）
 
 通读采访记录，适度删除明显冗余的语气词/填充词（嗯、啊、那个、就是、然后堆叠等）。原则：**只删明显冗余、不改原意、不动摘要/人物信息/时间码/说话人标签**。详见 references/prompts.md 文末说明。
@@ -192,6 +209,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_document.json *segments
 - **说话人识别必须用 LLM**（启发式已废弃）；prompt 必须强调「每轮问答独立成段，不要合并同一说话人多轮」
 - **DashScope 调用统一**：音频转录用 `MultiModalConversation.call(model="qwen3-asr-flash")`；文本任务（说话人/摘要）用 `scripts/call_qwen.py`（`Generation.call`, qwen-plus）。务必 `pip install -U dashscope`，勿用已变更的 `Transcription.call`（版本兼容见 references/dashscope_setup.md）
 - **默认本地转录**，不强制询问；仅用户要求更高准确率或提供 Key 时切云端
+- **GPU 加速（本地仍默认）**：`setup_env.py` 检测到 NVIDIA GPU 会自动装 CUDA 版 torch，本地 SenseVoice/Paraformer 推理走 GPU（RTX 40 系约数倍提速）；无 GPU 则装 CPU 版。无论哪种，**默认仍是本地模型推理**，不切换云端
 - **输入类型自动识别**：视频才提取静帧+转 MP3；音频跳过且 `frame_path=null` 不输出静帧
 - **切段决策在选方式之后、模型自动**：云端 >5 分钟必切，本地 >20 分钟建议切，均不询问
 - **说话人统一 LLM 语义切分（本地/云端同此）**：支持多说话人（群访无需额外配置）；无需 HF Token、无需 pyannote
