@@ -1,5 +1,6 @@
 ---
 name: interview-transcriber
+display_name: 采访秒变 Word
 description: |
   采访转录全流程处理技能（支持视频与音频输入，也支持「一个采访拆成多段文件」合并转录）。默认本地转录（SenseVoice/Paraformer 魔搭社区中文模型，离线可用、无需 API Key）；可选云端转录（Qwen3-ASR-Flash，准确率更高，需 DashScope API Key）作为升级方案。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> LLM 智能说话人识别（统一语义切分，免 HuggingFace Token，支持多说话人，保留时间码） -> LLM 生成内容摘要与受访人人物信息 -> 直接生成带时间码的 Word 文档（.docx，全程无 Markdown 中间文件）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
   若用户把一个采访拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段采访，技能自动合并转录为一篇文档。
@@ -7,7 +8,7 @@ description: |
 agent_created: true
 ---
 
-# 采访视频转录
+# 采访秒变 Word（interview-transcriber）
 
 ## 概述
 
@@ -39,7 +40,29 @@ agent_created: true
 
 脚本本身也会打印阶段与逐段进度（`[转录进度 i/N]`、`段 i/N`、`⏳ 首次下载` 等），可直接转述给用户。
 
+## 长耗时步骤执行要点（避免 Agent 卡死 / 用户看到「没声了」）
+本技能多个步骤耗时数分钟（模型下载、逐段 ASR、LLM 说话人/摘要）。若 Agent 在前台**阻塞等待**这些命令，一旦超时或脚本挂起，整轮对话会卡死、再也不回消息。必须遵守：
+
+- **长命令一律放后台跑 + 轮询**，不要在前台同步等：转录（`transcribe_local.py` / `transcribe_qwen.py`）、LLM 调用（`call_qwen.py`）都用后台任务启动，再周期性读取进度 / 部分结果文件确认存活。
+- **脚本已加硬超时与 flush**：模型加载 600s、单段 ASR 900s、LLM 调用 180s 超时后会**快速失败并退出**（不再无限挂起）；所有进度 print 已 `flush`，后台日志能实时看到。超时即按「错误处理」章节恢复，不要干等。
+- **部分结果已落盘**：`transcribe_local.py` 每处理完一段就写 `<标题>_transcript.partial.json`，即使中途中断也有部分内容可交付 / 续跑。
+- 用户感知：启动长步骤前一句「正在转录，约需 X 分钟，我后台跑着、好了告诉你」比「稍等片刻」更不容易让用户以为卡死。
+
 ## 工作流程
+
+### Step 0: 环境准备与首次安装 review（必须，避免组件漏装）
+
+本技能依赖：5 个 Python 包（funasr / modelscope / python-docx / pillow / dashscope）+ ffmpeg/ffprobe。**这些必须在转录前全部就绪**，否则跑到一半才报错、白费数分钟。
+
+**执行顺序（硬性要求）：**
+1. **先 review（不安装）**：运行 `python <skill_dir>/scripts/setup_env.py --verify`
+   - 全 ✅ → 直接跳到 Step 1，无需安装。
+   - 有 ❌ → 进入第 2 步安装。
+2. **安装**：`python <skill_dir>/scripts/setup_env.py`（逐包安装，单个失败不影响其他包，会自动记录漏装项并给出精准重试命令；ffmpeg 在 Windows 缺失时自动从国内镜像下载静态构建）。
+3. **安装后必须再 review**：脚本装完会**自动跑一遍自检**并打印 PASS/FAIL 报告（也可单独 `python <skill_dir>/scripts/setup_env.py --verify` 复查）。**只有全部 ✅ 才进入 Step 1 转录；仍有 ❌ 则按报告里的精准命令补装对应组件，复查通过再继续。**
+   - 切勿「装完就走」——这正是过去组件漏装、转录中途失败的根因。
+
+> 说明：`setup_env.py` 的自检是**真实 import 每个包 + 校验 ffmpeg 二进制是否存在**，不是看 pip 记录，漏装一定能暴露。Agent 在 Step 0 结束后应向用户一句话通报「组件自检全部通过 / 还差 X」，再继续。
 
 ### Step 1: 输入预处理（ffmpeg）
 

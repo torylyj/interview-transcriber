@@ -21,6 +21,32 @@ dashscope 调用代码、降低版本不一致风险。
 import os
 import sys
 import argparse
+import threading
+import functools
+
+print = functools.partial(print, flush=True)
+
+
+def with_timeout(seconds, func, *args, **kwargs):
+    """在子线程中运行阻塞调用并加硬超时；超时直接 os._exit 终止，
+    保证 bash 命令一定能返回，不会让上层 Agent 永久卡在等待里。"""
+    box = {}
+
+    def _run():
+        try:
+            box["val"] = func(*args, **kwargs)
+        except BaseException as e:  # noqa: BLE001
+            box["err"] = e
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(seconds)
+    if t.is_alive():
+        print(f"❌ 调用通义千问超时（>{seconds}s）：可能是网络或服务端卡住，请稍后重试。")
+        os._exit(1)
+    if "err" in box:
+        raise box["err"]
+    return box["val"]
 
 try:
     import dashscope
@@ -58,10 +84,9 @@ def main():
     messages.append({"role": "user", "content": prompt})
 
     try:
-        resp = dashscope.Generation.call(
-            model=args.model,
-            messages=messages,
-            result_format="message",
+        resp = with_timeout(
+            180, dashscope.Generation.call,
+            model=args.model, messages=messages, result_format="message",
         )
     except Exception as e:
         print(f"调用失败: {e}", file=sys.stderr)

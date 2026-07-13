@@ -16,7 +16,40 @@ import os
 import sys
 import json
 import argparse
+import threading
+import functools
 from datetime import datetime
+
+# 所有 print 立即刷新，避免长耗时步骤的输出被缓冲，导致调用方（Agent）误以为卡死
+print = functools.partial(print, flush=True)
+
+
+def with_timeout(seconds, func, *args, **kwargs):
+    """在子线程中运行阻塞调用并加硬超时。
+
+    超时或异常都让它**快速失败**、绝不无限挂起。超时直接 os._exit
+    终止进程，保证 bash 命令一定能返回（不会让上层 Agent 永久卡在等待里）。
+    """
+    box = {}
+
+    def _run():
+        try:
+            box["val"] = func(*args, **kwargs)
+        except BaseException as e:  # noqa: BLE001
+            box["err"] = e
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(seconds)
+    if t.is_alive():
+        print(
+            f"❌ 操作超时（>{seconds}s）：很可能是模型下载 / 网络 / CUDA 卡住。"
+            f"请检查网络后重试，或先手动下载模型再运行。"
+        )
+        os._exit(1)
+    if "err" in box:
+        raise box["err"]
+    return box["val"]
 
 # ── 模型定义 ──────────────────────────────────────────────────
 # 仅保留阿里达摩院中文模型（魔搭社区国内直连，无需 HuggingFace）。
@@ -81,7 +114,7 @@ def load_funasr_model(model_key: str):
         kwargs["punc_model"] = cfg["funasr_punc"]
 
     try:
-        model = AutoModel(**kwargs)
+        model = with_timeout(600, AutoModel, **kwargs)
         print(f"  ✅ {cfg['name']} 加载成功")
         return model, model_key
     except Exception as e:
@@ -100,16 +133,10 @@ def transcribe_funasr(model, audio_path: str, model_key: str) -> list:
 
     try:
         if model_key == "sensevoice":
-            result = model.generate(
-                input=audio_path,
-                language="zh",
-                use_itn=True,
-            )
+            gen_kwargs = dict(input=audio_path, language="zh", use_itn=True)
         else:  # paraformer
-            result = model.generate(
-                input=audio_path,
-                batch_size_s=300,
-            )
+            gen_kwargs = dict(input=audio_path, batch_size_s=300)
+        result = with_timeout(900, model.generate, **gen_kwargs)
     except Exception as e:
         print(f"  ❌ 转录失败: {e}")
         return []
@@ -304,6 +331,21 @@ def main():
             print(f"  [{item['start']:.1f}-{item['end']:.1f}] {item['speaker']}: {item['text']}")
         if len(aligned) > 5:
             print(f"  ... 共 {len(aligned)} 个片段")
+
+        # 每处理完一段就落盘一次部分结果，避免被超时 / 异常中断时前功尽弃
+        try:
+            partial = merge_aligned_segments(all_aligned, segment_offsets)
+            partial_path = os.path.join(output_dir, f"{doc_title}_transcript.partial.json")
+            with open(partial_path, "w", encoding="utf-8") as pf:
+                json.dump(
+                    generate_transcript_json(
+                        partial, doc_title, source_file, model_cfg["name"],
+                        frame_path, config.get("input_type", "video"),
+                    ),
+                    pf, ensure_ascii=False, indent=2,
+                )
+        except Exception:
+            pass  # 检查点写入失败不影响主流程
 
     # 合并
     merged = merge_aligned_segments(all_aligned, segment_offsets)
