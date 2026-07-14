@@ -125,13 +125,13 @@ MODEL_CONFIGS = {
         "needs_hf": False,
     },
     "paraformer": {
-        "name": "Paraformer-large",
+        "name": "Paraformer-large-vad-punc",
         "source": "ModelScope 魔搭社区",
-        "source_url": "https://modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
-        "size": "~800MB",
+        "source_url": "https://modelscope.cn/models/iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+        "size": "~900MB",
         "quality": "⭐⭐⭐⭐⭐ (中文最高，尤其嘈杂/口音)",
-        "description": "阿里达摩院 Paraformer-large：中文大规模预训练，FunASR 流水线内置 FSMN-VAD（真实句级时间码）+ CT-Transformer 标点恢复 + CAM++ 说话人嵌入（spk_model），时间码/标点/说话人分离一次 generate() 全产出",
-        "funasr_model": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+        "description": "阿里达摩院 Paraformer-large-vad-punc（nat 版）：中文大规模预训练，能输出【词级时间码】——这是句子级说话人分离（punc_segment 模式）的硬前提。配合 FSMN-VAD + CT-Transformer 标点 + CAM++ 说话人嵌入，走 punc_segment 后可【按标点句子】分配说话人（而非按 VAD 段），彻底解决长语音段被合并成单一说话人的问题。⚠️ 普通 speech_paraformer-large_asr_nat（无 vad-punc）不产生词级时间码，会退回 vad_segment 模式导致开头长段合并，切勿使用。",
+        "funasr_model": "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
         "funasr_vad": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
         "funasr_punc": "iic/punc_ct-transformer_cn-en-common-vocab471067-large",
         "funasr_spk": "iic/speech_campplus_sv_zh-cn_16k-common",
@@ -168,9 +168,16 @@ def load_funasr_model(model_key: str):
         "model": cfg["funasr_model"],
         "trust_remote_code": True,
     }
-    # Paraformer 额外加载 VAD、标点、说话人嵌入模型
+    # Paraformer(nat) 额外加载 VAD、标点、说话人嵌入模型
     if "funasr_vad" in cfg:
         kwargs["vad_model"] = cfg["funasr_vad"]
+    # ✅ punc_model 与 spk_model 必须【同载】：
+    #   句子级说话人分离（funasr punc_segment 模式）依赖 punc_model 产生的
+    #   punc_array 做断句，再把 CAM++ 说话人标签按句子分配。缺 punc_model 则
+    #   sentence_info 为空（"生成 0 个文本片段"）。
+    #   前提是主模型能产生【词级 timestamp】——即 nat 的 vad-punc 版
+    #   (speech_paraformer-large-vad-punc_asr_nat)；普通 paraformer-large 不产生
+    #   时间码，会退回 vad_segment 模式导致长段合并成单一说话人。
     if "funasr_punc" in cfg:
         kwargs["punc_model"] = cfg["funasr_punc"]
     if "funasr_spk" in cfg:
@@ -191,16 +198,62 @@ def load_funasr_model(model_key: str):
         sys.exit(1)
 
 
-def transcribe_funasr(model, audio_path: str, model_key: str) -> list:
-    """用 FunASR (SenseVoice/Paraformer) 转录单个音频段"""
+def load_punc_model(model_key: str):
+    """加载独立的 CT-Transformer 标点模型（Paraformer 逐句标点用）。
+
+    Paraformer 不能与 spk_model 同载 punc（见 load_funasr_model 注释），
+    故标点单独加载，在 transcribe_funasr 中对每句文本独立恢复标点，
+    既保证 CAM++ 说话人分离正确，又得到带标点的输出。
+    """
+    try:
+        from funasr import AutoModel
+    except ImportError:
+        print("错误: funasr 未安装，请执行: pip install funasr")
+        sys.exit(1)
+
+    cfg = MODEL_CONFIGS[model_key]
+    punc = cfg.get("funasr_punc")
+    if not punc:
+        return None
+    print(f"加载标点模型（{cfg['name']} 配套 CT-Transformer，逐句标点）...")
+    model = AutoModel(model=punc, trust_remote_code=True)
+    print(f"  ✅ 标点模型加载成功")
+    return model
+
+
+def punctuate_text(punc_model, text: str) -> str:
+    """用独立标点模型恢复单句标点；失败时原样返回。"""
+    if punc_model is None or not text:
+        return text
+    try:
+        pr = punc_model.generate(input=text)[0]
+        return (pr.get("text") or text).strip()
+    except Exception as e:
+        print(f"  [warn] 标点失败，保留原文本: {e}")
+        return text
+
+
+def transcribe_funasr(model, audio_path: str, model_key: str, punc_model=None, preset_spk_num=None) -> list:
+    """用 FunASR (SenseVoice/Paraformer) 转录单个音频段
+
+    punc_model: 仅 SenseVoice 路径可能用到的独立标点模型；Paraformer(nat) 的标点
+        已由主模型同载的 punc_model 在 punc_segment 内完成，无需再逐句处理。
+    preset_spk_num: 强制说话人数（如街头采访=2，采访者+受访者）。传入后 CAM++
+        聚类固定成该人数，显著提升 2 人对话的分离稳定性；为 None 时自动判定人数。
+    """
     cfg = MODEL_CONFIGS[model_key]
     print(f"  转录中 ({cfg['name']}): {audio_path}")
 
     try:
         if model_key == "sensevoice":
             gen_kwargs = dict(input=audio_path, language="zh", use_itn=True, sentence_timestamp=True)
-        else:  # paraformer
+        else:  # paraformer(nat)
+            # nat 模型产生词级 timestamp + 同载 punc_model → 走 punc_segment 模式，
+            # 按标点句子分配 CAM++ 说话人标签（句子级，非 VAD 段级）。
+            # preset_spk_num 强制说话人数，避免长段/短应答被误聚类。
             gen_kwargs = dict(input=audio_path, batch_size_s=300)
+            if preset_spk_num:
+                gen_kwargs["preset_spk_num"] = preset_spk_num
         result = with_timeout(900, model.generate, **gen_kwargs)
     except Exception as e:
         print(f"  ❌ 转录失败: {e}")
@@ -218,10 +271,14 @@ def transcribe_funasr(model, audio_path: str, model_key: str) -> list:
     sentence_info = res.get("sentence_info", [])
     if sentence_info:
         for s in sentence_info:
-            text = s.get("text", "").strip()
+            # nat + punc_segment：sentence 字段即带标点的句子文本（部分版本为 text）。
+            text = (s.get("sentence") or s.get("text") or "").strip()
             if text:
-                # 若加载了 spk_model（CAM++），sentence_info 每项带 spk 字段，
-                # 即模型内说话人聚类结果；无则回退统一 SPEAKER_00（由下游命名）。
+                # 兜底：若该句无标点（极少数情况）且有独立 punc 模型，补一次。
+                if punc_model is not None and not any(c in text for c in "，。！？、；："):
+                    text = punctuate_text(punc_model, text)
+                # sentence_info 每项带 spk 字段（CAM++ 按句子分配的说话人 id）；
+                # 无则回退统一 SPEAKER_00（由下游命名）。
                 spk = s.get("spk", 0)
                 segments.append({
                     "start": s.get("start", 0) / 1000.0,  # ms → s
@@ -371,8 +428,15 @@ def main():
     print(f"   若本地尚未缓存，需联网下载，耗时约 1–5 分钟，请耐心等待；")
     print(f"   下载完成后会自动缓存，后续转录秒级启动。\n")
 
-    # 加载 ASR 模型
+    # 加载 ASR 模型（Paraformer(nat) 主模型已同载 vad+punc+spk，走 punc_segment 句子级说话人分离）
     asr_model, asr_key = load_funasr_model(model_key)
+    # 独立 punc 模型仅作兜底（nat 的标点已在 punc_segment 内完成，通常无需）。
+    punc_model = None
+    # 强制说话人数：街头采访/双人对话建议在 config 里设 "preset_spk_num": 2，
+    # 可显著提升 2 人分离稳定性；不设则由 CAM++ 自动判定人数。
+    preset_spk_num = config.get("preset_spk_num")
+    if preset_spk_num:
+        print(f"  强制说话人数: preset_spk_num={preset_spk_num}")
 
     # 逐段处理
     all_aligned = []
@@ -385,8 +449,8 @@ def main():
 
         print(f"\n--- 段 {i+1}/{len(segments)}: {seg_file} (偏移 {seg_offset}s) ---")
 
-        # a. ASR 转录
-        asr_segments = transcribe_funasr(asr_model, seg_file, asr_key)
+        # a. ASR 转录（句子级说话人分离 + 标点，一次 generate 产出）
+        asr_segments = transcribe_funasr(asr_model, seg_file, asr_key, punc_model=punc_model, preset_spk_num=preset_spk_num)
 
         if not asr_segments:
             print("  ⚠️ 本段无转录结果，跳过")

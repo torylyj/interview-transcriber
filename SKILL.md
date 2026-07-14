@@ -56,7 +56,7 @@ agent_created: true
 
 本技能在真实环境（Windows + 托管 Python 3.13 无 C++ 编译器 + RTX 4070 GPU + 钉钉 dws）跑通过，以下坑都是实测踩出来的。完整清单与对策见 **references/gotchas.md**（强烈建议改动技能或首次跑长任务前通读）。几条最高频、最致命的硬性规则：
 
-- **本地说话人由 CAM++ 在模型内分离（可靠）**：Paraformer-large 加载 `spk_model="cam++"`，单次 generate() 即返回每句 speaker id（按声纹自动聚类，无需指定人数）。`build_document.py --auto` 统一按「首次出现顺序」中性命名为 说话人1/2/3……（不做采访者/受访人这类角色判定），**无需 LLM**；如需把 说话人1/2 改成真名/角色，用 `--apply` 覆盖。仅**云端** Qwen3-ASR-Flash 无原生分离，仍需 LLM 语义切分。
+- **本地说话人分离必须走 punc_segment 句子级模式（血泪坑）**：普通 `speech_paraformer-large_asr_nat` **不产生词级时间码**，加了 spk_model 也只会退回 **vad_segment 模式**——每个 VAD 语音段只能贴一个说话人标签，开头几十秒连续问答会被并成同一个人（这就是"说话人分离有很大问题"的根因）。**正确做法**：用 nat 版模型 `iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch`（词级时间码）+ **显式传 `vad_model`（fsmn_vad）**+ **同载 `punc_model`（ct-transformer）**+ `spk_model`（campplus_sv），并传 `preset_spk_num=2`（双人对话强制聚 2 类，显著稳）。四件套缺一不可：缺 vad_model → 长音频不分段、`sentence_info` 为空（"生成 0 片段"）；缺 punc_model → 无 `punc_array`、punc_segment 不触发、`sentence_info` 为空。跑通后每句自带 `spk/sentence/start/end`，句子级正确交替。`build_document.py --auto` 按「首次出现顺序」中性命名为 说话人1/2/3……（**不做采访者/受访人角色判定**，corrections 的 `speaker_roles` 留空即保持中性）；改真名/角色才用 `--apply`。仅**云端** Qwen3-ASR-Flash 无原生分离，仍需 LLM 语义切分。
 - **本地时间码分两路**：Paraformer-VAD 返回**真实句级时间码**（sentence_info，精确到句）；仅 SenseVoice 的 `sentence_timestamp` 不生效、每段整块，逐句时间码才由「标点切句 + 各段偏移/时长线性插值」估算——**段内为估算值、段落边界才精确，勿标「精确到秒」**。
 - **钉钉在线文档无法渲染本地图片路径**：`H:/...jpg` 不显示，必须用 `dws doc media insert` 把图真正上传插入。
 - **钉钉 `dws auth status` 会卡 2 分钟**：别依赖它，直接试业务命令（doc search/create/send 正常即已登录）。
