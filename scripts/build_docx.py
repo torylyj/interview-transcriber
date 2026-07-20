@@ -26,15 +26,13 @@ import json
 import argparse
 import re
 
-# 说话人配色（不同颜色的表情），按出现顺序分配，用于在每个说话人
-# 一轮的「首次说话位置」做标识，便于快速区分。
-_SPEAKER_EMOJI = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫"]
-
-def _speaker_emoji(speaker, state):
-    """按说话人出现顺序返回不同颜色的表情（state 跨轮次保持同一标识）。"""
-    if speaker not in state:
-        state[speaker] = _SPEAKER_EMOJI[len(state) % len(_SPEAKER_EMOJI)]
-    return state[speaker]
+try:
+    from docx import Document
+    from docx.shared import Inches, Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+except ImportError:
+    print("错误: python-docx 未安装。请先执行: pip install python-docx")
+    sys.exit(1)
 
 
 def normalize_path(p):
@@ -47,13 +45,46 @@ def normalize_path(p):
     return p
 
 
-try:
-    from docx import Document
-    from docx.shared import Inches, Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-except ImportError:
-    print("错误: python-docx 未安装。请先执行: pip install python-docx")
-    sys.exit(1)
+# 说话人区分（三重冗余，强弱度梯度）：
+#   ① 形状区分：每个说话人使用不同「彩色大色块」（前 8 位用大色方块，多于 8 位用色圆图标兜底）
+#   ② 颜色区分：每个说话人绑定不同的 WD_COLOR_INDEX 背景高亮（Word 标准 16 色循环）
+#   ③ 位置区分：每轮「首次说话位置」打上「色块+说话人标签」，颜色背景贯通到时间码后跟的正文首字
+# 三种区分一起作用，肉眼/打印/复制粘贴都能明显看出来。
+_SPEAKER_BLOCK = [
+    "🟥",  # 红方块
+    "🟧",  # 橙方块
+    "🟨",  # 黄方块
+    "🟩",  # 绿方块
+    "🟦",  # 蓝方块
+    "🟪",  # 紫方块
+    "🟫",  # 棕方块
+    "⬛",  # 黑方块
+    "🟢",  # 备用：绿圆（色相已用绿方块，此处做扩展位）
+    "🔵",  # 备用：蓝圆
+]
+# WD_COLOR_INDEX 高亮色（Word 标准 16 色），每个说话人独占一个，循环使用
+_SPEAKER_HIGHLIGHT = [
+    WD_COLOR_INDEX.RED,
+    WD_COLOR_INDEX.YELLOW,
+    WD_COLOR_INDEX.GREEN,
+    WD_COLOR_INDEX.TURQUOISE,
+    WD_COLOR_INDEX.BLUE,
+    WD_COLOR_INDEX.PINK,
+    WD_COLOR_INDEX.DARK_RED,
+    WD_COLOR_INDEX.DARK_YELLOW,
+    WD_COLOR_INDEX.BRIGHT_GREEN,
+    WD_COLOR_INDEX.TEAL,
+]
+
+def _speaker_visual(speaker, state):
+    """返回 (emoji, highlight_color) 元组；state 跨轮次稳定，保证同一说话人始终是同一颜色。"""
+    if speaker not in state:
+        i = len(state)
+        state[speaker] = (
+            _SPEAKER_BLOCK[i % len(_SPEAKER_BLOCK)],
+            _SPEAKER_HIGHLIGHT[i % len(_SPEAKER_HIGHLIGHT)],
+        )
+    return state[speaker]
 
 
 def add_inline_runs(paragraph, text):
@@ -67,6 +98,28 @@ def add_inline_runs(paragraph, text):
         run = paragraph.add_run(part)
         if i % 2 == 1:  # 奇数段为加粗
             run.bold = True
+
+
+def _add_label_runs(paragraph, emoji, speaker, ts, highlight):
+    """对话记录的说话人标签：色块 + 说话人名（加粗+背景高亮，按说话人专属颜色）+ 时间码。
+
+    拆分为三个 run：
+      ① emoji（彩色大色块，前缀视觉锚点）
+      ② 说话人名（**加粗** + 背景高亮，区分说话人）
+      ③ 时间码（普通）
+    """
+    # ① 色块
+    r_emoji = paragraph.add_run(f"{emoji} ")
+    r_emoji.bold = True
+    # ② 说话人（加粗 + 背景高亮）
+    r_spk = paragraph.add_run(speaker or "")
+    r_spk.bold = True
+    if highlight is not None:
+        r_spk.font.highlight_color = highlight
+    # ③ 时间码（如 "[00:15]"）
+    ts_clean = (ts or "").strip()
+    if ts_clean:
+        paragraph.add_run(" " + ts_clean)
 
 
 def parse_px(width_str):
@@ -119,15 +172,38 @@ def build(doc, data, base_dir):
 
     # ── 内容摘要 ──
     summary = data.get("summary")
-    if summary:
+    summary_sections = data.get("summary_sections") or []
+    if summary or summary_sections:
         doc.add_heading("\U0001F4DD 内容摘要", level=1)
-        for para in str(summary).split("\n"):
-            if para.strip() == "":
-                doc.add_paragraph("")
-            else:
-                p = doc.add_paragraph()
-                add_inline_runs(p, para)
-        doc.add_paragraph("")
+        # 先打一句总结性摘要（保留与旧版兼容）
+        if summary:
+            for para in str(summary).split("\n"):
+                if para.strip() == "":
+                    doc.add_paragraph("")
+                else:
+                    p = doc.add_paragraph()
+                    add_inline_runs(p, para)
+            if summary_sections:
+                doc.add_paragraph("")  # 总结与板块之间空一行
+        # 再分板块摘要（H2 小标题 + 内容）
+        for sec in summary_sections:
+            if not isinstance(sec, dict):
+                continue
+            title = str(sec.get("title", "")).strip()
+            content = str(sec.get("content", "")).strip()
+            if not content:
+                continue
+            if title:
+                doc.add_heading(title, level=2)
+            for para in content.split("\n"):
+                if para.strip() == "":
+                    doc.add_paragraph("")
+                else:
+                    p = doc.add_paragraph()
+                    add_inline_runs(p, para)
+            doc.add_paragraph("")
+        if not summary_sections:
+            doc.add_paragraph("")
 
     # ── 人物信息（条件性：无信息整段省略；多人每人一个表格）──
     person_info = data.get("person_info") or []
@@ -163,16 +239,12 @@ def build(doc, data, base_dir):
 
     # ── 文档信息 ──
     doc.add_heading("\U0001F4CB 文档信息", level=1)
-    tool = data.get("transcription_tool", "")
-    tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "句级时间码为文本长度插值估算（段落边界精确）"
     info_lines = [
         f"源文件：{data.get('source_file', '')}",
         f"输入类型：{data.get('input_type', '')}",
-        f"转录工具：{tool}",
+        f"转录工具：{data.get('transcription_tool', '')}",
         f"说话人识别：{data.get('speaker_method', 'CAM++ 说话人嵌入（本地）/ LLM 语义切分（云端）')}",
-        f"摘要与人物信息：{data.get('summary_method', 'LLM 生成')}",
         f"转录日期：{data.get('date', '')}",
-        f"时间码精度：{tc_accuracy}",
     ]
     q = doc.add_paragraph()
     q.paragraph_format.left_indent = Inches(0.3)
@@ -187,22 +259,21 @@ def build(doc, data, base_dir):
     conversation = data.get("conversation") or []
     if not conversation:
         print("  ⚠️ 警告: conversation 为空，文档将缺少对话记录")
-    emoji_state = {}
+    visual_state = {}
     for turn in conversation:
         speaker = turn.get("speaker", "")
-        emoji = _speaker_emoji(speaker, emoji_state)
+        emoji, hl = _speaker_visual(speaker, visual_state)
         paras = turn.get("paragraphs") or []
         if not paras:
-            # 旧结构回退：整块输出
-            label = f"{emoji} **{speaker}** {turn.get('timestamp', '')}".strip()
+            # 旧结构回退：整块输出（无段落时仅打标签+正文，颜色高亮仍加上）
             p_label = doc.add_paragraph()
-            add_inline_runs(p_label, label)
+            _add_label_runs(p_label, emoji, speaker, turn.get("timestamp", ""), hl)
             p_text = doc.add_paragraph()
             add_inline_runs(p_text, turn.get("text", ""))
             continue
-        # 说话人标签（每轮一次，含首段时间码；首句用不同颜色表情标识）
+        # 说话人标签（每轮一次，含首段时间码；首句用色块+背景色高亮标识）
         p_label = doc.add_paragraph()
-        add_inline_runs(p_label, f"{emoji} **{speaker}** {paras[0]['ts']}".strip())
+        _add_label_runs(p_label, emoji, speaker, paras[0]["ts"], hl)
         # 各段：首段接在标签后（时间码已在标签），续段以时间码起头
         for i, para in enumerate(paras):
             txt = para["text"] if i == 0 else f"{para['ts']} {para['text']}"
@@ -222,7 +293,19 @@ def export_markdown(data, md_path, skip_frame=False):
     if frame_path and not skip_frame:
         lines += [f"![人物静帧]({frame_path})", ""]
 
-    lines += ["---", "", "## \U0001F4DD 内容摘要", "", data.get("summary", ""), "", "---", ""]
+    lines += ["---", "", "## \U0001F4DD 内容摘要", "", data.get("summary", "")]
+    summary_sections = data.get("summary_sections") or []
+    for sec in summary_sections:
+        if not isinstance(sec, dict):
+            continue
+        title = str(sec.get("title", "")).strip()
+        content = str(sec.get("content", "")).strip()
+        if not content:
+            continue
+        if title:
+            lines += ["", f"### {title}", ""]
+        lines += [content, ""]
+    lines += ["---", ""]
     person_info = data.get("person_info") or []
     if person_info:
         lines.append("## \U0001F464 人物信息")
@@ -240,26 +323,22 @@ def export_markdown(data, md_path, skip_frame=False):
                 lines.append(f"| {item.get('field', '')} | {item.get('value', '')} |")
             lines.append("")
     lines += ["", "---", "", "## \U0001F4CB 文档信息", ""]
-    tool = data.get("transcription_tool", "")
-    tc_accuracy = "段内为估算值（4分钟粒度）" if ("Qwen" in tool or "云端" in tool) else "句级时间码为文本长度插值估算（段落边界精确）"
     lines += [
         f"> 源文件：{data.get('source_file', '')}",
         f"> 输入类型：{data.get('input_type', '')}",
-        f"> 转录工具：{tool}",
+        f"> 转录工具：{data.get('transcription_tool', '')}",
         f"> 说话人识别：{data.get('speaker_method', 'CAM++ 说话人嵌入（本地）/ LLM 语义切分（云端）')}",
-        f"> 摘要与人物信息：{data.get('summary_method', 'LLM 生成')}",
         f"> 转录日期：{data.get('date', '')}",
-        f"> 时间码精度：{tc_accuracy}",
         "",
         "---",
         "",
         "## \U0001F4AC 对话记录",
         "",
     ]
-    emoji_state = {}
+    visual_state = {}
     for turn in data.get("conversation") or []:
         speaker = turn.get("speaker", "")
-        emoji = _speaker_emoji(speaker, emoji_state)
+        emoji, _hl = _speaker_visual(speaker, visual_state)
         paras = turn.get("paragraphs") or []
         if not paras:
             lines.append(f"{emoji} **{speaker}** {turn.get('timestamp', '')}".strip())

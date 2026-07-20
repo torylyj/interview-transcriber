@@ -141,7 +141,7 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 ### Step 3.6: 生成摘要与人物信息（必须执行！）
 
-调用 LLM 生成 3-5 句摘要 + 人物信息表（字段：学校/单位、专业/学院、年级/身份、家乡、关键经历、核心观点）。方法 A/B 同上，prompt 见 references/prompts.md。
+调用 LLM 生成**三部分**：① `summary`（3-5 句总结性摘要）+ ② `summary_sections`（按主题拆分的分板块摘要，每个板块 = `{"title", "content"}`，**至少 2 个板块**）+ ③ `person_info`（人物字段表，字段：学校/单位、专业/学院、年级/身份、家乡、关键经历、核心观点）。方法 A/B 同上，prompt 见 references/prompts.md。
 
 **写入 `<标题>_document.json`**（字段定义见 references/output_schema.md）。该 JSON 由 Step 3.8 直接生成 .docx，**全程不生成 Markdown**。
 
@@ -157,13 +157,15 @@ python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.j
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --auto
 
 # 3) Agent 复核后用 corrections.json 落盘最终 document.json（推荐，避免手改 JSON）
-#    corrections.json = {"speaker_roles": {"说话人1":"张三","说话人2":"李四", ...}, "summary":"…", "person_info":[…]}
+#    corrections.json = {"speaker_roles": {"说话人1":"张三","说话人2":"李四", ...},
+#                        "summary":"…", "summary_sections":[{"title":"…","content":"…"}, ...],
+#                        "person_info":[…]}
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --apply corrections.json
 ```
 
 - 脚本消费 `transcript.json` 的 `segments`：Paraformer-VAD 已带**真实句级** start/end（精确到句）；SenseVoice 则整段一块、start/end 为 0，由本脚本「按标点切句 + 各段偏移/时长线性插值」得到——**段内为估算值，段落边界才精确，勿标「精确到秒」**。无需再解析 `raw_text`。
-- 说话人角色：本地已用 CAM++ 在模型内分离好（每段带真实 `SPEAKER_XX`），`--auto` 统一按首次出现顺序中性命名为 说话人1/2/3……，**无需 LLM**。命名有误时再用 `--apply` 覆盖 `speaker_roles` 即可。⚠️ **轻量闭环（命名不准才用）**：① `python build_document.py transcript.json --review` 打印逐句 + 说话人分布；② 若自动命名不准，把角色映射写成 `corrections.json`：`{"speaker_roles": {"说话人1":"张三","说话人2":"李四"}, "summary":"…", "person_info":[…]}`；③ `python build_document.py transcript.json document.json --apply corrections.json` 自动按 speaker id 映射角色、合并连续同角色为 turn，写出最终 `document.json`（无需手改嵌套 JSON，避免出错）。
-- 随后 Agent 把 Step 3.6 的 `summary` 与 `person_info` 写入同一 `document.json`（无信息则 `person_info: []` 整段省略；多人多表）。
+- 说话人角色：本地已用 CAM++ 在模型内分离好（每段带真实 `SPEAKER_XX`），`--auto` 统一按首次出现顺序中性命名为 说话人1/2/3……，**无需 LLM**。命名有误时再用 `--apply` 覆盖 `speaker_roles` 即可。⚠️ **轻量闭环（命名不准才用）**：① `python build_document.py transcript.json --review` 打印逐句 + 说话人分布；② 若自动命名不准，把角色映射写成 `corrections.json`：`{"speaker_roles": {"说话人1":"张三","说话人2":"李四"}, "summary":"…", "summary_sections":[{"title":"…","content":"…"}, ...], "person_info":[…]}`；③ `python build_document.py transcript.json document.json --apply corrections.json` 自动按 speaker id 映射角色、合并连续同角色为 turn，写出最终 `document.json`（无需手改嵌套 JSON，避免出错）。
+- 随后 Agent 把 Step 3.6 的 `summary` / `summary_sections` / `person_info` 写入同一 `document.json`（无信息则 `person_info: []` 整段省略；多人多表）。
 - 也可 `import` 本脚本的 `parse_sentences / assign_speaker_labels / assemble_document` 在 Agent 代码里直接调用。
 - **长轮次自动分段**：`group_turns` 会把长独白（如某说话人一口气讲 1000+ 字）按 ~160 字或 4 句切成多段，每段带首句时间码；`build_docx.py` 的 `.docx` 与 Markdown 均逐段输出，避免一大块难读。
 
@@ -176,7 +178,7 @@ python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.j
 ```
 python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "<output_dir>/<标题>.docx"
 ```
-直接渲染：标题、居中静帧（仅视频、`frame_path` 非 null）、内容摘要、人物信息（无则省略／多人多表）、文档信息（含**时间码精度**标注）、对话记录（加粗说话人+时间码，每轮首句用不同颜色表情标识）。音频输入跳过静帧。依赖：`pip install python-docx pillow`。
+直接渲染：标题、居中静帧（仅视频、`frame_path` 非 null）、**内容摘要**（含总结性摘要 + 分板块 H2 子标题）、人物信息（无则省略／多人多表）、文档信息（精简为 5 行：源文件 / 输入类型 / 转录工具 / 说话人识别 / 转录日期，**不再写时间码精度、摘要与人物信息**）、对话记录（每轮首句用**彩色大色块 + 说话人名加粗 + Word 背景高亮**三重标识不同说话人）。音频输入跳过静帧。依赖：`pip install python-docx pillow`。
 
 ### Step 3.9: 交付前预览与轻量确认（清理前）
 
