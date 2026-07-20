@@ -11,7 +11,7 @@ Word 文档。**全程不依赖 Markdown 中间文件。**
   - 内容摘要（📝 内容摘要，多段落）
   - 人物信息表格（👤 人物信息，2 列）
   - 文档信息引用块（📋 文档信息）
-  - 对话记录（💬 对话记录，加粗说话人标签 + 时间码，每轮首句用不同颜色表情标识）
+  - 对话记录（💬 对话记录，加粗说话人标签 + 时间码，每轮首句用色相差异大的彩色圆点标识不同说话人）
 
 可选：
   --export-md <path>  额外导出一份临时 Markdown（供在线平台上传用，上传后即删）
@@ -29,7 +29,7 @@ import re
 try:
     from docx import Document
     from docx.shared import Inches, Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
 except ImportError:
     print("错误: python-docx 未安装。请先执行: pip install python-docx")
     sys.exit(1)
@@ -45,45 +45,27 @@ def normalize_path(p):
     return p
 
 
-# 说话人区分（三重冗余，强弱度梯度）：
-#   ① 形状区分：每个说话人使用不同「彩色大色块」（前 8 位用大色方块，多于 8 位用色圆图标兜底）
-#   ② 颜色区分：每个说话人绑定不同的 WD_COLOR_INDEX 背景高亮（Word 标准 16 色循环）
-#   ③ 位置区分：每轮「首次说话位置」打上「色块+说话人标签」，颜色背景贯通到时间码后跟的正文首字
-# 三种区分一起作用，肉眼/打印/复制粘贴都能明显看出来。
-_SPEAKER_BLOCK = [
-    "🟥",  # 红方块
-    "🟧",  # 橙方块
-    "🟨",  # 黄方块
-    "🟩",  # 绿方块
-    "🟦",  # 蓝方块
-    "🟪",  # 紫方块
-    "🟫",  # 棕方块
-    "⬛",  # 黑方块
-    "🟢",  # 备用：绿圆（色相已用绿方块，此处做扩展位）
-    "🔵",  # 备用：蓝圆
-]
-# WD_COLOR_INDEX 高亮色（Word 标准 16 色），每个说话人独占一个，循环使用
-_SPEAKER_HIGHLIGHT = [
-    WD_COLOR_INDEX.RED,
-    WD_COLOR_INDEX.YELLOW,
-    WD_COLOR_INDEX.GREEN,
-    WD_COLOR_INDEX.TURQUOISE,
-    WD_COLOR_INDEX.BLUE,
-    WD_COLOR_INDEX.PINK,
-    WD_COLOR_INDEX.DARK_RED,
-    WD_COLOR_INDEX.DARK_YELLOW,
-    WD_COLOR_INDEX.BRIGHT_GREEN,
-    WD_COLOR_INDEX.TEAL,
+# 说话人区分：在每轮「首次说话位置」用一个**色相差异大的彩色圆点**作为前缀标识。
+# 关键：色相按 (红→蓝→绿→黄→紫→黑→棕→白→橙→灰) 分散排列，确保相邻说话人
+# 拿到的颜色色相差距大（如 红+橙、蓝+绿 这种相近配色要避开）。
+# 同色相用「色相 + 明度」两种维度做扩展位，可覆盖 10 位说话人。
+_SPEAKER_EMOJI = [
+    "🔴",  # 1 红
+    "🔵",  # 2 蓝
+    "🟢",  # 3 绿
+    "🟡",  # 4 黄
+    "🟣",  # 5 紫
+    "⚫",  # 6 黑
+    "🟤",  # 7 棕
+    "⚪",  # 8 白
+    "🟠",  # 9 橙（与红相邻但已被前 8 个拉开色相）
+    "🔘",  # 10 灰
 ]
 
-def _speaker_visual(speaker, state):
-    """返回 (emoji, highlight_color) 元组；state 跨轮次稳定，保证同一说话人始终是同一颜色。"""
+def _speaker_emoji(speaker, state):
+    """按说话人出现顺序返回色相差异大的彩色圆点（state 跨轮次保持同一标识）。"""
     if speaker not in state:
-        i = len(state)
-        state[speaker] = (
-            _SPEAKER_BLOCK[i % len(_SPEAKER_BLOCK)],
-            _SPEAKER_HIGHLIGHT[i % len(_SPEAKER_HIGHLIGHT)],
-        )
+        state[speaker] = _SPEAKER_EMOJI[len(state) % len(_SPEAKER_EMOJI)]
     return state[speaker]
 
 
@@ -98,28 +80,6 @@ def add_inline_runs(paragraph, text):
         run = paragraph.add_run(part)
         if i % 2 == 1:  # 奇数段为加粗
             run.bold = True
-
-
-def _add_label_runs(paragraph, emoji, speaker, ts, highlight):
-    """对话记录的说话人标签：色块 + 说话人名（加粗+背景高亮，按说话人专属颜色）+ 时间码。
-
-    拆分为三个 run：
-      ① emoji（彩色大色块，前缀视觉锚点）
-      ② 说话人名（**加粗** + 背景高亮，区分说话人）
-      ③ 时间码（普通）
-    """
-    # ① 色块
-    r_emoji = paragraph.add_run(f"{emoji} ")
-    r_emoji.bold = True
-    # ② 说话人（加粗 + 背景高亮）
-    r_spk = paragraph.add_run(speaker or "")
-    r_spk.bold = True
-    if highlight is not None:
-        r_spk.font.highlight_color = highlight
-    # ③ 时间码（如 "[00:15]"）
-    ts_clean = (ts or "").strip()
-    if ts_clean:
-        paragraph.add_run(" " + ts_clean)
 
 
 def parse_px(width_str):
@@ -259,21 +219,22 @@ def build(doc, data, base_dir):
     conversation = data.get("conversation") or []
     if not conversation:
         print("  ⚠️ 警告: conversation 为空，文档将缺少对话记录")
-    visual_state = {}
+    emoji_state = {}
     for turn in conversation:
         speaker = turn.get("speaker", "")
-        emoji, hl = _speaker_visual(speaker, visual_state)
+        emoji = _speaker_emoji(speaker, emoji_state)
         paras = turn.get("paragraphs") or []
         if not paras:
-            # 旧结构回退：整块输出（无段落时仅打标签+正文，颜色高亮仍加上）
+            # 旧结构回退：整块输出
+            label = f"{emoji} **{speaker}** {turn.get('timestamp', '')}".strip()
             p_label = doc.add_paragraph()
-            _add_label_runs(p_label, emoji, speaker, turn.get("timestamp", ""), hl)
+            add_inline_runs(p_label, label)
             p_text = doc.add_paragraph()
             add_inline_runs(p_text, turn.get("text", ""))
             continue
-        # 说话人标签（每轮一次，含首段时间码；首句用色块+背景色高亮标识）
+        # 说话人标签（每轮一次，含首段时间码；首句用色相差异大的彩色圆点标识）
         p_label = doc.add_paragraph()
-        _add_label_runs(p_label, emoji, speaker, paras[0]["ts"], hl)
+        add_inline_runs(p_label, f"{emoji} **{speaker}** {paras[0]['ts']}".strip())
         # 各段：首段接在标签后（时间码已在标签），续段以时间码起头
         for i, para in enumerate(paras):
             txt = para["text"] if i == 0 else f"{para['ts']} {para['text']}"
@@ -335,10 +296,10 @@ def export_markdown(data, md_path, skip_frame=False):
         "## \U0001F4AC 对话记录",
         "",
     ]
-    visual_state = {}
+    emoji_state = {}
     for turn in data.get("conversation") or []:
         speaker = turn.get("speaker", "")
-        emoji, _hl = _speaker_visual(speaker, visual_state)
+        emoji = _speaker_emoji(speaker, emoji_state)
         paras = turn.get("paragraphs") or []
         if not paras:
             lines.append(f"{emoji} **{speaker}** {turn.get('timestamp', '')}".strip())
