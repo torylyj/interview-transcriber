@@ -139,9 +139,29 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 > 说明：本地说话人走 CAM++ 是按声纹聚类（模型内、可靠），与旧版「逐句启发式」或「LLM 语义切分」都不同——它直接给出「谁在何时说」，不再需要 Agent 做繁重的切分。
 
-### Step 3.6: 生成摘要与人物信息（必须执行！）
+### Step 3.55: 同音字校对（必做，提升 .docx 稳定性）
 
-调用 LLM 生成**三部分**：① `summary`（3-5 句总结性摘要）+ ② `summary_sections`（按主题拆分的分板块摘要，每个板块 = `{"title", "content"}`，**至少 2 个板块**）+ ③ `person_info`（人物字段表，字段：学校/单位、专业/学院、年级/身份、家乡、关键经历、核心观点）。方法 A/B 同上，prompt 见 references/prompts.md。
+中文 ASR 模型按读音识别（Paraformer / SenseVoice / Qwen3-ASR 都会），常把同音字搞混（在↔再、做↔作、的↔得↔地、了↔啦↔咯、记↔纪↔计 等）。LLM 按上下文识别并批量替换，对最终 `.docx` 的可读性影响最大。
+
+**两种调用方式**（与 Step 3.5/3.6 一致）：
+- **方式 A（推荐）**：Agent 自身即 LLM，按 references/prompts.md § Step 3.55 的 prompt 执行；把返回 JSON 保存为 `corrections.json`（可与 Step 3.6 的 summary/summary_sections/person_info 合并），再用脚本应用。
+- **方式 B**：`python <skill_dir>/scripts/correct_homophones.py <transcript.json> --call-qwen --model qwen-plus` —— 自动调 qwen-plus 生成并应用 corrections，产出 `<标题>_transcript.corrected.json`。
+
+**应用方式**（二选一）：
+1. **独立落盘**（推荐）：产出 `<标题>_transcript.corrected.json`；`build_document.py` 会**自动检测并优先消费**它（仅替换 text，不动 speaker / start / end / metadata）。
+   ```bash
+   python <skill_dir>/scripts/correct_homophones.py "<output_dir>/<标题>_transcript.json" \
+       --apply-corrections corrections.json
+   # 产出 <标题>_transcript.corrected.json
+   ```
+2. **合并到 `--apply`**：把 `homophone_corrections` 数组加进 `corrections.json`，与 `speaker_roles` / `summary` / `summary_sections` / `person_info` 一起作为 `--apply` 入参；`build_document.py --apply` 会内联应用同音字校对（无需写 corrected.json）。
+
+**重要边界**：
+- 同音字校对只改**字**，不改标点 / 段结构 / 说话人 / 时间码；
+- 短语气词（啊/嗯/哦）的误识别通常不是同音字错误（是删除冗余），应放到 Step 3.7 处理；
+- 数字/人名/专名错误 LLM 可能误判（如「林黛玉」不应改成「林戴玉」），必须人工复核 corrections 后再 --apply。
+
+### Step 3.6: 生成摘要与人物信息（必须执行！）
 
 **写入 `<标题>_document.json`**（字段定义见 references/output_schema.md）。该 JSON 由 Step 3.8 直接生成 .docx，**全程不生成 Markdown**。
 

@@ -134,3 +134,101 @@ Raw transcript:
 > · 「一」写入 `summary`；
 > · 「二」的 JSON 数组写入 `summary_sections`；
 > · 「三」的 JSON 数组写入 `person_info`（无个人信息时写 `[]`，整段人物信息板块将被省略）。
+
+---
+
+## Step 3.55 同音字校对（必做，提升 .docx 稳定性）
+
+> 中文 ASR 模型（Paraformer / SenseVoice / Qwen3-ASR）按读音识别，常把同音字搞混：
+> - 在 ↔ 再（再 = 表重复动作；在 = 表位置/存在）
+> - 做 ↔ 作（动词 vs 助词/名词）
+> - 的 ↔ 得 ↔ 地（修饰 vs 补语 vs 状语）
+> - 了 ↔ 啦 ↔ 咯（语气词易混）
+> - 记 ↔ 纪 ↔ 计；系 ↔ 戏 ↔ 细；辩 ↔ 辨 ↔ 辫；帐 ↔ 账；复 ↔ 覆；像 ↔ 象；报 ↔ 抱
+> - 数字/人名/专名的同音替换（如 "五四" 误识为 "无事"）
+>
+> 这一步按上下文识别并批量替换，对最终 .docx 的可读性影响最大。
+>
+> **两种方式**（与 Step 3.5/3.6 一致）：
+> - 方式 A（推荐）：Agent 自身即 LLM，直接按下面的 prompt 在对话中执行；
+> - 方式 B：非 LLM Agent 用 `python <skill_dir>/scripts/correct_homophones.py --call-qwen` 调用 qwen-plus。
+
+### Step 3.55 方法 A：Agent 自身执行
+
+```
+你是中文转录校对员。以下是一段音视频（标题：{title}）的转录文本（已按说话人分段，时间顺序）。
+转录模型（Paraformer-large / SenseVoice / Qwen3-ASR-Flash 等）按读音识别，容易把同音字搞混。
+请按上下文识别并列出**有明确证据**需要替换的同音字，按要求输出 JSON。
+
+# 重点关注的同音字对
+- 在 ↔ 再（再 = 表重复动作；在 = 表位置/存在）
+- 做 ↔ 作（动词 vs 助词/名词）
+- 的 ↔ 得 ↔ 地（修饰 vs 补语 vs 状语）
+- 了 ↔ 啦 ↔ 咯（语气词易混，按上下文语气判断）
+- 记 ↔ 纪 ↔ 计（如 记忆/记忆/记忆）
+- 系 ↔ 戏 ↔ 细
+- 辩 ↔ 辨 ↔ 辫
+- 帐 ↔ 账
+- 复 ↔ 覆
+- 像 ↔ 象
+- 报 ↔ 抱
+- 数字/人名/专名的同音替换（如 "五四" 误识为 "无事"、"李四" 误识为 "李似"）
+
+# 输出格式（严格 JSON，无多余说明）
+{{
+  "homophone_corrections": [
+    {{
+      "original": "原词（转录结果）",
+      "corrected": "应改成的词",
+      "context": "包含 original 的完整片段（用于精确匹配替换，5-30 字）",
+      "reason": "为什么要改（一句话即可，如「上下文是重复动作，应为『再』」）"
+    }}
+  ]
+}}
+
+# 严格要求
+1. 只列**有明确证据**要改的，宁缺毋滥；拿不准的不要列
+2. context 必须是包含 original 的完整片段（便于精确替换，避免误伤相同词）
+3. 同一原文在多处出现错误，可分多条
+4. 短语气词（啊/嗯/哦）误识别可忽略，不属于同音字错误
+5. 数字/人名/专名按同音字处理（但要先核对上下文是否合理）
+6. 不要改标点；不要改段落结构；不要做语序调整
+7. 没有任何同音字错误时，输出 {{"homophone_corrections": []}}
+
+转录文本（按时间顺序，每行一条；[N] 是段索引，[speaker] 是说话人）：
+{segmented_text}
+
+仅输出 JSON：
+```
+
+> Agent 自身执行方式 A 时，把返回的 JSON 对象直接保存为 `corrections.json`（可与 Step 3.6 的 summary/summary_sections/person_info 合并到一个文件），然后：
+>
+> 方式 1（推荐，独立落盘）：
+> ```bash
+> python <skill_dir>/scripts/correct_homophones.py <transcript.json> --apply-corrections corrections.json
+> # 产出 <标题>_transcript.corrected.json；下一步 build_document.py 自动消费它
+> ```
+>
+> 方式 2（合并到 --apply）：`corrections.json` 加 `homophone_corrections` 数组，与 `speaker_roles` / `summary` / `summary_sections` / `person_info` 一起作为 `--apply` 入参；`build_document.py --apply` 会内联应用同音字校对，无需写 corrected.json。
+
+### Step 3.55 方法 B：直接调用 qwen-plus
+
+非 LLM Agent 用 `<skill_dir>/scripts/correct_homophones.py --call-qwen` 一键完成：
+
+```bash
+# 一次性：调 qwen-plus 生成并应用 corrections，写出 <标题>_transcript.corrected.json
+python <skill_dir>/scripts/correct_homophones.py <transcript.json> --call-qwen --model qwen-plus
+# 自定义输出路径
+python <skill_dir>/scripts/correct_homophones.py <transcript.json> --call-qwen --output <标题>_transcript.corrected.json
+```
+
+依赖：`pip install dashscope` + 环境变量 `DASHSCOPE_API_KEY`（设置见 references/dashscope_setup.md）。脚本同时会把 LLM 返回的 corrections 备份到 `<标题>_homophone_corrections.json`，便于审计/回退。
+
+### 应用与验证
+
+- `<标题>_transcript.corrected.json` 产出后，`build_document.py` **自动检测**并优先消费它（仅替换 segments[].text，不动 speaker / start / end / metadata）。
+- 也可在 `corrections.json` 里内联 `homophone_corrections`，与 `--apply` 一起跑（一次产出最终 document.json）。
+- **重要边界**：
+  - 同音字校对只改**字**，不改标点 / 段结构 / 说话人 / 时间码；
+  - 短语气词（啊/嗯/哦）的误识别通常不是同音字错误（是删除冗余），应放到 Step 3.7 处理；
+  - 数字/人名/专名错误 LLM 可能误判（如「林黛玉」不应改成「林戴玉」），必须人工复核 corrections。

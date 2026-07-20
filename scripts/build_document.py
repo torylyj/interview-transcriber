@@ -305,6 +305,33 @@ def main():
 
     with open(args.transcript, "r", encoding="utf-8") as f:
         data = json.load(f)
+
+    # Step 3.55 同音字校对：如存在 <input>.corrected.json（由 correct_homophones.py 产出），
+    # 自动优先消费其中的 segments（仅替换 text，不动 speaker / start / end / metadata）
+    corrected_path = os.path.splitext(args.transcript)[0] + ".corrected.json"
+    if corrected_path != args.transcript and os.path.isfile(corrected_path):
+        try:
+            with open(corrected_path, "r", encoding="utf-8") as f:
+                corrected = json.load(f)
+            # 合并：保留原 transcript 的 metadata，仅替换 segments
+            if corrected.get("segments"):
+                old_segs = data.get("segments") or []
+                new_segs = corrected["segments"]
+                # 按 start/speaker 对齐，把 corrected 的 text 写回原 segments（保留所有时间码）
+                # 若 corrected 长度与原不一致，降级为整段替换
+                if len(new_segs) == len(old_segs):
+                    for o, n in zip(old_segs, new_segs):
+                        o["text"] = n.get("text", o["text"])
+                    print(f"  已合并同音字校对结果：{corrected_path}（保留所有时间码/说话人标签）")
+                else:
+                    # 长度不一致（边界情况），整段替换 + 警告
+                    data["segments"] = new_segs
+                    data["raw_text"] = corrected.get("raw_text", data.get("raw_text", ""))
+                    print(f"  ⚠️ 同音字校对版 segments 数量与原不一致（{len(new_segs)} vs {len(old_segs)}），已整段替换")
+            if corrected.get("raw_text") and not corrected.get("segments"):
+                data["raw_text"] = corrected["raw_text"]
+        except Exception as e:
+            print(f"  ⚠️ 读取 {corrected_path} 失败，回退用原 transcript：{e}")
     config_segs = load_config(args.config)
     sentences = parse_sentences(data, config_segs)
     print(f"解析到 {len(sentences)} 个句子（Paraformer+CAM++ 为真实说话人+句级时间码；SenseVoice 为整段插值）")
@@ -314,6 +341,33 @@ def main():
     for s in sentences:
         spk_counts[s["speaker"]] = spk_counts.get(s["speaker"], 0) + 1
     print(f"说话人分布（模型聚类）: {spk_counts}")
+
+    # ── Step 3.55 同音字校对（--apply 路径内联）──
+    # 若 corrections.json 含 homophone_corrections，按 context 精确替换 sentence.text
+    # 优先级：① corrected.json（已合并到 data.segments）② corrections.json 内联
+    if args.apply and args.output:
+        try:
+            with open(args.apply, "r", encoding="utf-8") as f:
+                _corr_inline = json.load(f)
+        except Exception:
+            _corr_inline = {}
+        hc = (_corr_inline.get("homophone_corrections", []) or []) if isinstance(_corr_inline, dict) else []
+        if hc:
+            n_applied = 0
+            for c in hc:
+                orig = c.get("original", "")
+                corr = c.get("corrected", "")
+                ctx = c.get("context", "")
+                if not orig or not corr or orig == corr or not ctx:
+                    continue
+                # 在所有句子中找到含 ctx 的那一处，替换其中的 orig
+                for s in sentences:
+                    if ctx in s["text"]:
+                        s["text"] = s["text"].replace(ctx, ctx.replace(orig, corr, 1), 1)
+                        n_applied += 1
+                        break
+            if n_applied:
+                print(f"  ✓ --apply 内联同音字校对：应用 {n_applied} 处")
 
     if args.review or not args.output:
         print("\n=== 逐句解析（供 Agent 复核角色命名） ===")
@@ -352,6 +406,8 @@ def main():
         print(f"   说话人命名: {label_map}")
         if override:
             print(f"   自定义覆盖: {override}")
+        if hc:
+            print(f"   同音字校对: {len(hc)} 条 corrections（已应用 {n_applied} 处）")
         print(f"   共 {len(turns)} 个对话轮次；summary/summary_sections/person_info 已填入（无则空）")
         return
 
