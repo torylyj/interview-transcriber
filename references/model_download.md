@@ -71,3 +71,16 @@ huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_HF_TOKEN
 
 - 无 HuggingFace Token 也能用：SenseVoice/Paraformer 从魔搭下载，无需 HF；CAM++ 说话人嵌入同样从魔搭随 FunASR 自动下载，也无需 Token。本地说话人分离由 CAM++ 在模型内完成；云端则走 LLM 语义切分（同云端模式，支持多说话人）。
 - 如对中文转录质量要求高，本地默认已用 Paraformer-large（高精度）；如需更快/多语言/情感标签可选 SenseVoice，或在流程末尾提示用户切换云端 Qwen3-ASR-Flash。
+
+
+## 快速档：SenseVoice q8 GGUF 运行时（v1.13.0 起）
+
+单 exe + 两个 GGUF 文件，**无需 Python/torch/venv**：
+
+| 文件 | 大小 | 来源 |
+|------|------|------|
+| funasr-llamacpp-windows-x64-avx2.zip（解压为 runtime/） | ~5MB | `https://github.com/modelscope/FunASR/releases/download/runtime-llamacpp-v0.2.6/funasr-llamacpp-windows-x64-avx2.zip` |
+| sensevoice-small-q8.gguf | 254MB | `https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf` |
+| fsmn-vad.gguf | 1.7MB | `https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf` |
+
+默认解压/放置路径 `G:/llamacpp-asr/`（runtime/ 与 gguf/），可用 `transcribe_gguf.py --runtime-dir/--gguf-dir` 覆盖。macOS/Linux 用户从同一 Release 页取对应平台包（CUDA/Vulkan 后端可选 `--backend`）。实测速度：纯 CPU AVX2 约 33 倍实时（199s 音频 6.2s）；精度（中文 184 集基准）CER 7.99%，优于 Paraformer q8（9.78%）。

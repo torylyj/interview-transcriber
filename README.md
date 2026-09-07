@@ -30,11 +30,11 @@
 |------|------|
 | 🎞️ 输入预处理 | 视频：提取**最清晰静帧** + 转 MP3；音频：直接用作音频（跳过转 MP3、无静帧） |
 | 🧩 多段合并 | 一段音视频拆成多个文件？明确告知后自动合并转录为一篇文档 |
-| ⚡ 快速转录（推荐档之一） | FunASR Paraformer-large（魔搭社区，中文高精度，离线可用，速度最快）/ 可选 SenseVoice（轻量·多语言·情感） |
+| ⚡ 快速转录（默认档） | **SenseVoice-Small q8 量化**（FunASR GGUF/llama.cpp 运行时：单 exe ~5MB + 模型 254MB，纯 CPU ~33 倍实时，**零 Python/torch 依赖**，自带标点） |
 | 🎯 精准转录（推荐档之一） | MOSS-Transcribe-Diarize 0.9B 端到端：转录+说话人+时间戳一次生成，说话人分离最稳、标点自然（建议 ≥16GB 显存） |
 | ☁️ 云端转录 | Qwen3-ASR-Flash（可选方式，需 DashScope API Key，不吃本机算力） |
 | ⏱️ 对话时间码 | 每轮对话标注 `[MM:SS]`，精准定位视频位置 |
-| 🗣️ 说话人识别 | 快速档：Paraformer-large + CAM++ **模型内**声纹聚类（无需 LLM 切分）+ LLM 语义校正兜底；精准档：MOSS 端到端一次生成；自动区分说话人（支持多说话人）；统一中性命名为 说话人1/2/3……（不做采访者/受访人角色判定） |
+| 🗣️ 说话人识别 | 快速档：GGUF 运行时无内分离 → **LLM 语义重切**（`resegment_speakers.py`，2 人~20 人自适应）；精准档：MOSS 端到端一次生成；自动区分说话人（支持多说话人）；统一中性命名为 说话人1/2/3……（不做采访者/受访人角色判定） |
 | 📝 内容摘要 | LLM 生成 3–5 句话概括音视频核心内容 |
 | 👤 人物信息 | LLM 提取人物信息；**未提及则整段省略**，多人时每人一个独立表格 |
 | 📤 多平台分发 | 本地 Word(.docx) / 钉钉文档 / 飞书 / Notion / 其他平台 |
@@ -60,7 +60,7 @@ https://github.com/torylyj/interview-transcriber
 - **ffmpeg** — 视频处理。Windows 缺失时 Agent 会自动从**国内镜像**下载静态构建；也可手动用 choco / winget / brew 安装。
 - **Python 3.10+** — 运行转录脚本。
 - **DashScope API Key** — 仅**云端转录**需要（[获取地址](https://bailian.console.aliyun.com/?tab=model#/api-key)）；本地转录完全不需要。
-- **无需 HuggingFace Token** — 本地说话人由 CAM++（快速档）或 MOSS（精准档）模型内分离（魔搭直连）；已移出 faster-whisper / pyannote。
+- **无需 HuggingFace Token** — 说话人识别全部模型内（MOSS）或 LLM 语义重切（快速档/云端）完成；已移出 faster-whisper / pyannote。
 
 > 💡 **安装是自动的**：把本技能交给 Agent 后，首次使用它会自动通过**国内镜像**装好依赖与 ffmpeg（如需手动触发：`python scripts/setup_env.py`）。你通常不需要手动装任何东西。
 
@@ -80,7 +80,7 @@ https://github.com/torylyj/interview-transcriber
 帮我转录这段采访录音：D:/audios/interview_001.m4a
 ```
 
-Agent 收到后会先检测你的显卡配置（nvidia-smi），**推荐「快速 / 精准 / 云端」三档之一**：显存 ≥16GB 推荐精准（MOSS 分离最稳）、8–12GB 推荐快速（FunASR，GPU 加速）、无 NVIDIA 显卡推荐云端（有 Key 时）。你确认后它自动执行完整流程，全程可随时说「换快速/换精准/换云端」切换。
+Agent 收到后会先检测你的显卡配置（nvidia-smi），**推荐「快速 / 精准 / 云端」三档之一**：显存 ≥16GB 推荐精准（MOSS 分离最稳）、其余一律先推快速（SenseVoice q8 纯 CPU 任何机器都能跑）、无 NVIDIA 显卡且有 Key 时推荐云端。你确认后它自动执行完整流程，全程可随时说「换快速/换精准/换云端」切换。
 
 - 如果想用**云端转录**，随时告诉 Agent「用云端转录」（需 DashScope API Key），它会切换为 Qwen3-ASR-Flash。
 - 如果**一个采访被拆成了多段视频/音频**，只需在开头说明「这 N 个文件是同一段采访」，Agent 会自动合并转录成一篇文档。
@@ -105,7 +105,7 @@ Agent 收到后会先检测你的显卡配置（nvidia-smi），**推荐「快�
 export DASHSCOPE_API_KEY="sk-your-key-here"
 ```
 
-> 💡 **提示**：三档模型按本机配置推荐——快速（FunASR，离线、无需配置）、精准（MOSS，分离最稳，建议 16GB 显存）、云端（Qwen3-ASR-Flash，需 DashScope API Key）。Agent 会先给出推荐，你三选一即可。
+> 💡 **提示**：三档模型按本机配置推荐——快速（SenseVoice q8 GGUF，~260MB 零依赖、离线、纯 CPU）、精准（MOSS，分离最稳，建议 16GB 显存）、云端（Qwen3-ASR-Flash，需 DashScope API Key）。Agent 会先给出推荐，你三选一即可。
 
 ---
 
@@ -124,7 +124,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 以一段 **20 分钟音视频** 为例（本机实测环境：NVIDIA RTX 4070 Ti SUPER + 模型已缓存）：
 
-| 环节 | 本地快速档（FunASR，GPU） | 云端模式（Qwen3-ASR-Flash） |
+| 环节 | 本地快速档（SenseVoice q8，CPU） | 云端模式（Qwen3-ASR-Flash） |
 |------|------|------|
 | 视频提取音频（ffmpeg） | 20–40 秒 | 20–40 秒 |
 | 模型加载（每次新进程） | 10–30 秒 | — |
@@ -193,6 +193,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v1.13.0 | 2026-09-07 | **快速档引擎更换：Paraformer-large → SenseVoice-Small q8（GGUF）**：实测（FDE 会议 199s + 北大街采 90s）纯 CPU ~33 倍实时、自带标点+数字规整、中文 CER 7.99%，运行时 5MB + 模型 254MB **零 Python/torch 依赖**。新增 `scripts/transcribe_gguf.py`（复用 transcribe_config.json，`--srt` 取 VAD 级时间戳，**内置日文假名伪影过滤**——SenseVoice 在说话人切换处偶发「さいや」类语种标签）；快速档无内分离 → Step 3.5C 语义重切升级为**快速档必做**；Step 3.5B 限定旧 Paraformer 引擎与 MOSS 复核；档位表/推荐逻辑/切段/通知模板/时间码说明全面改写；旧 Paraformer-large 保留为可选引擎（`transcribe_local.py --model paraformer`） |
 | v1.12.3 | 2026-09-07 | **新增 Step 3.5C 多说话人语义重切（`scripts/resegment_speakers.py`）**：快速档 CAM++ 的 `preset_spk_num=2` 是双人采访假设，论坛式大会（主持人+多嘉宾+观众）必然把多人并成 1 类。本脚本不重转音频，直接对 transcript.json 逐句做 LLM 语义重分段——内置编号白名单（防 LLM 批间自造编号）、非法编号回退上一说话人、批间 12 句重叠上下文+全局编号表；实测 155 分钟/11 说话人大会全部分对。输出 `.sem.json` + `.meta.json`（含说话人描述供角色映射）。触发条件与双人采访排除规则写入 SKILL.md |
 | v1.12.2 | 2026-09-07 | **快速档文本精修 + 文档格式优化**：① 新增 `scripts/refine_paragraphs.py`（Step 3.56）——LLM 对 document.json 逐轮做标点修复（治 Paraformer+ct-punc 的「因。为」错位）、按语义重排自然段（治长独白 ~160 字机械切段的胡乱换行）、轻度精简语气词；单轮长度校验失败自动回退原文，续段时间码按字数占比插值；快速档强烈推荐、MOSS 可跳过。② `build_docx.py` 长独白续段改为**时间码一行 + 内容另起一行**（原为同行拼接，docx 与 Markdown 导出同步修改）。③ 「文档信息·转录工具」自动追加档位与模型大小标注（`_tool_with_size`：快速档 Paraformer-large ~900MB + CAM++ ~30MB / 精准档 MOSS 0.9B ~1.8GB + torch GPU 栈 ~2.7GB / 云端无需本地模型），SKILL.md Step 2.5 档位表加「模型大小」列 |
 | v1.12.1 | 2026-09-07 | **三档模型选择（快速/精准/云端）+ 文档全面对齐**：Step 2.5 升级为「模型选择」环节——① 快速 = FunASR Paraformer+CAM++（速度最快、离线、无需 Key）；② 精准 = MOSS 端到端（分离最稳、标点自然）；③ 云端 = Qwen3-ASR-Flash（需 Key）。开始前 `nvidia-smi` 检测显存自动推荐：≥16GB → 精准、8–12GB → 快速、无 N 卡 → 云端/CPU 快速；用户三选一、随时可切。同步清除 SKILL.md/README 中「默认 Paraformer / MOSS 仅回退」与「默认 MOSS」并存的旧文案，切段/说话人/硬件/性能章节全部按三档改写 |
