@@ -2,7 +2,7 @@
 name: interview-transcriber
 display_name: 音视频转文档
 description: |
-  音视频转文档全流程处理技能（支持视频与音频输入，也支持「一段音视频拆成多段文件」合并转录）。默认本地转录（Paraformer-large 魔搭社区中文模型（高精度），离线可用、无需 API Key；⚠️ 首次运行需联网下载本地模型 ~800MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）。可选云端转录（Qwen3-ASR-Flash，需 DashScope API Key）。两种方式为并列可选：本地离线可用、无需 Key、首次需下载模型；云端需联网与 Key。默认本地，用户可随时切换。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> 说话人分离（本地 Paraformer+CAM++ 在模型内完成、云端 LLM 语义切分，支持多说话人；Paraformer 为真实句级时间码、SenseVoice 为插值估算）-> LLM 生成内容摘要与人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
+  音视频转文档全流程处理技能（支持视频与音频输入，也支持「一段音视频拆成多段文件」合并转录）。默认本地转录（MOSS-Transcribe-Diarize 0.9B 端到端模型：转录+说话人+时间戳一次生成，说话人分离最稳、标点自然，离线可用、无需 API Key；⚠️ 首次运行需联网下载本地模型 ~1.8GB + torch/transformers 推理栈，GPU 版约 2.7GB，耗时数分钟）。可选回退：Paraformer+CAM++（高精度、需说话人后处理）/ SenseVoice（轻量）/ 云端 Qwen3-ASR-Flash（需 DashScope Key）。默认本地，用户可随时切换。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 本地/云端转录 -> 说话人分离（默认 MOSS 端到端一次生成并自动归并为采访者/受访者、回退 Paraformer+CAM++ 在模型内完成、云端 LLM 语义切分，支持多说话人）-> LLM 生成内容摘要与人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
   若用户把一段音视频拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段音视频，技能自动合并转录为一篇文档。
   适用于任何支持 bash 命令执行和文件读写的 AI 编码代理（Agent）。全流程处理完毕后主动询问用户交付位置，并说明还有云端转录这一可选方式（需 DashScope API Key）。
 agent_created: true
@@ -25,7 +25,7 @@ agent_created: true
 | Agent | 加载方式 |
 |-------|---------|
 | **WorkBuddy** | 放在 `~/.workbuddy/skills/`，对话中自动触发或 `@skill:interview-transcriber` |
-| **Claude Code / Codex / Cursor / 其他** | 作为 `CLAUDE.md` / `AGENTS.md` / `.cursorrules` 注入，核心依赖 ffmpeg + Python + 可选 DashScope |
+| **其他 Agent / Codex** | 作为 `AGENTS.md` 注入，核心依赖 ffmpeg + Python + 可选 DashScope |
 
 **LLM 调用方式：** Step 3.6（摘要/人物信息）需要 LLM。本地说话人由 CAM++ 在模型内分离，无需 LLM；仅云端说话人 + 全部摘要仍走 LLM。方式 A（推荐）：Agent 自身即 LLM，直接执行。方式 B：非 LLM Agent 用 Python 调用 qwen-plus，**统一通过 `scripts/call_qwen.py`**（见 references/dashscope_setup.md）。
 
@@ -83,19 +83,19 @@ agent_created: true
 
 **1a. 检测输入类型**：视频（`.mp4 .mov .avi .mkv .flv .wmv .webm`）/ 音频（`.mp3 .wav .m4a .aac .flac .ogg .wma`）。
 
-**1b. 视频输入 → 提取静帧 + 转 MP3**
+**1b. 视频输入 → 只提静帧，免转 MP3（默认 MOSS 路径）**
 - 静帧：用 `scripts/extract_frame.py` 抽取**最清晰的一帧**（视频【五等分】各抽 1 帧、按清晰度比选，输入定位不软解整段视频），输出 800px 宽：
   ```
   python <skill_dir>/scripts/extract_frame.py "输入.mp4" "人物静帧.jpg"
   ```
-- 转 MP3（16k 单声道 192kbps）：`ffmpeg -i "输入.mp4" -vn -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" -y`
-- `frame_path="人物静帧.jpg"`，`audio_file="输出.mp3"`
+- **音频无需预转**：默认 MOSS 路径下 config 的 `segments` 直接写原始视频路径，`transcribe_local.py` 内部自动提取 16k 单声道 WAV（pcm，无损、比 MP3 编码快）喂给模型、用完即删——用户无感。
+- `frame_path="人物静帧.jpg"`，`segments=[{"file":"<原始视频绝对路径>","offset":0}]`
+- 仅回退 Paraformer/SenseVoice 或云端时才需要预转 MP3：`ffmpeg -i "输入.mp4" -vn -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" -y`
 
-**1c. 音频输入 → 跳过 MP3 转换，无静帧**
-```
-ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" -y
-```
-- `frame_path=null`，`audio_file="输出.mp3"`（或原文件）
+**1c. 音频输入 → 原样直入，无静帧**
+- 默认 MOSS 路径：音频文件直接写进 `segments`，无需重采样（模型内部处理）。
+- 回退/云端路径才转 MP3：`ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" -y`
+- `frame_path=null`
 
 **1d. 多段输入合并**：见文末「多段音视频输入说明」（合并命令见 references/segment_commands.md）。
 
@@ -107,22 +107,23 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 ### Step 2.5: 确定转录方式（默认本地）
 
-默认本地（`mode: "local"`，Paraformer-large），**不打断询问**。仅当用户明确要求云端/提供 Key，或要求其他本地模型（如更轻量的 SenseVoice）时才切换。
+默认本地（`mode: "local"`，FunASR Paraformer-large + CAM++ 高精度、中文最准、速度快），**不打断询问**。仅当用户明确要求云端/提供 Key，或要求其他本地模型（如 轻量 SenseVoice 更快 / MOSS 端到端可选回退）时才切换。
 
-> ⚠️ **开始前一句话交代取舍**（避免用户误以为卡死）：本地离线可用、无需 Key，但首次需联网下载模型（Paraformer-large ~800MB + torch 推理栈，GPU 版约 2.7GB，耗时数分钟）；云端需联网与 DashScope API Key。两种方式都能满足常规转录需求，默认本地，用户可随时切换。
+> ⚠️ **开始前一句话交代取舍**（避免用户误以为卡死）：本地离线可用、无需 Key，但首次需联网下载模型（FunASR Paraformer-large ~900MB + CAM++ 说话人模型 + torch 推理栈，GPU 版约 2GB，耗时数分钟）；云端需联网与 DashScope API Key。两种方式都能满足常规转录需求，默认本地，用户可随时切换。
 
-配置 `transcribe_config.json`（也可先用 `python <skill_dir>/scripts/prepare.py <输入>` 一键生成：自动识别类型、抽静帧、转 MP3、按模型能力切段、写入 config）：
+配置 `transcribe_config.json`（推荐直接用 `python <skill_dir>/scripts/prepare.py <输入>` 一键生成：自动识别类型、抽静帧、按模型能力决定切段、写入 config；默认 **FunASR 模型下视频转 16k 音频（MP3/WAV）**；仅 `moss` 端到端为可选回退才免转 MP3）：
 
-**首次转录提醒（必须执行）：** 在真正运行转录脚本（Step 3）之前，必须先用一句话告知用户——「本次为首次转录，将联网下载本地模型（Paraformer-large 约 800MB + torch 推理栈，GPU 版约 2.7GB），耗时数分钟，请耐心等待；下载完成后会自动缓存，之后转录秒级启动」。脚本 `transcribe_local.py` 启动时也会打印同样提示。这样做是为避免用户面对数分钟静默误以为卡死。
-- 云端（`mode: "cloud"`）：需 `api_key`；本地（`mode: "local"`）：`model` 默认 paraformer（可选 sensevoice）。**本地说话人由 CAM++ 在模型内分离（免 HF Token、无需 LLM）**；仅云端说话人 + 全部摘要才走 LLM 语义切分，群访等多个说话人同样支持。
+**首次转录提醒（必须执行）：** 在真正运行转录脚本（Step 3）之前，必须先用一句话告知用户——「本次为首次转录，将联网下载本地模型（FunASR Paraformer-large ~900MB + CAM++ 说话人模型，GPU 版约 2GB），耗时数分钟，请耐心等待；下载完成后会自动缓存，之后转录秒级启动」。脚本 `transcribe_local.py` 启动时也会打印同样提示。这样做是为避免用户面对数分钟静默误以为卡死。
+- 云端（`mode: "cloud"`）：需 `api_key`；本地（`mode: "local"`）：`model` 默认 **paraformer**（高精度；可选 `sensevoice` 轻量更快 / `moss` 端到端回退）。**本地说话人由 CAM++ 在模型内分离（按声纹自动聚类，免 HF Token），但纯声纹聚类在街头采访偶尔贴反/抖动——务必接 LLM 语义校正（见 Step 3.5B）**；仅云端说话人 + 全部摘要才走 LLM 语义切分，群访等多个说话人同样支持。
 - 配置模板（cloud/local）见 references/dashscope_setup.md；模型下载/镜像/HF Token 说明见 references/model_download.md。
 
 ### Step 2.6: 切段决策（模型自动，不询问）
 
 用 ffprobe 获取音频时长，按所选模型能力自动决策（详见 references/segment_commands.md）：
+- **本地 FunASR（默认）**：>20 分钟建议切（4 分钟/段）；短音频整段。
+- **本地 MOSS 端到端（可选回退）**：≤15 分钟整段直入；>15 分钟提取 WAV 后按 12 分钟/段切（防 OOM，实测 26 分钟在 16GB 显存爆掉）。注意 MOSS 是端到端自回归模型，速度慢（约 1.5–2 倍实时）、长音频易 OOM，**非默认**。
 - **云端 Qwen3-ASR-Flash**：>5 分钟必切（4 分钟/段，留余量）；≤5 分钟整段。
-- **本地 SenseVoice/Paraformer**：>20 分钟建议切（4 分钟/段）；短音频整段。
-- 切段命令见 references/segment_commands.md。结果写入 config 的 `segments`（切段：offset 递增；不切：`[{"file":"输出.mp3","offset":0}]`）。
+- `prepare.py` 已内置以上决策。结果写入 config 的 `segments`（切段：offset 递增；不切：`[{"file":"<原始文件>","offset":0}]`）。
 
 ### Step 3: 运行转录
 
@@ -130,14 +131,42 @@ ffmpeg -i "输入.m4a" -acodec libmp3lame -ab 192k -ar 16000 -ac 1 "输出.mp3" 
 
 **3A. 云端（可选方式）**：`python <skill_dir>/scripts/transcribe_qwen.py --config transcribe_config.json` — 逐段调用 qwen3-asr-flash，生成 `<标题>_transcript.json`（含 metadata + `raw_text`，无 Markdown）。
 
-**3B. 本地（默认）**：`python <skill_dir>/scripts/transcribe_local.py --config transcribe_config.json [--model paraformer]`（默认 Paraformer-large，高精度） — 逐段 ASR，**说话人由 CAM++ 在模型内分离**（生成 `<标题>_transcript.json` 已带 `SPEAKER_XX`），角色命名见 Step 3.65。依赖安装见 references/model_download.md。
+**3B. 本地（默认）**：`python <skill_dir>/scripts/transcribe_local.py --config transcribe_config.json [--model moss]`（默认 MOSS-Transcribe-Diarize 0.9B 端到端：转录+说话人+时间戳一次生成） — 逐段 ASR，**说话人由 MOSS 端到端分离并自动归并为 采访者/受访者**（生成 `<标题>_transcript.json` 已带 `SPEAKER_XX`）；回退 Paraformer 时用 `--model paraformer`（CAM++ 在模型内分离）。角色命名见 Step 3.65。依赖安装见 references/model_download.md。
 
-### Step 3.5: 说话人识别（本地已模型内完成，云端需 LLM）
+### Step 3.5: 说话人识别（本地已模型内完成，但需 LLM 校正）
 
-- **本地（默认）**：说话人已由 Paraformer+CAM++ 在模型内分离，`_transcript.json` 每段已带真实 `SPEAKER_XX`。**无需 LLM**；统一命名（说话人1/2/3……）在 Step 3.65 由 `build_document.py --auto` 完成（按首次出现顺序中性编号），如需真名/角色用 `--apply` 覆盖。
+- **本地（默认 FunASR Paraformer + CAM++）**：说话人由 CAM++ 在模型内按声纹聚类，`_transcript.json` 每段带 `SPEAKER_XX`；脚本按「提问密度 + 平均轮长」归并为 **采访者/受访者** 两角（两人对话默认即此命名）。**但纯声纹聚类在街头采访（短应答、抢话、噪声）下偶尔会把两人贴反或同人抖成多号**，所以本地路径必须接 LLM 语义校正（见 3.5B），不能只靠聚类。
 - **云端**：Qwen3-ASR-Flash 无原生说话人分离，仍需 LLM 语义切分。方法 A（Agent 自身 LLM）直接按 references/prompts.md 的 prompt 输出；方法 B（外部 API）用 `python <skill_dir>/scripts/call_qwen.py --prompt-file speaker_prompt.txt`。
 
-> 说明：本地说话人走 CAM++ 是按声纹聚类（模型内、可靠），与旧版「逐句启发式」或「LLM 语义切分」都不同——它直接给出「谁在何时说」，不再需要 Agent 做繁重的切分。
+#### Step 3.5B: 本地说话人 LLM 校正（FunASR 必做，保证质量）
+
+CAM++ 只给「谁在何时说」，不保证角色正确。用 `correct_speakers.py` 调 Qwen-Plus 按问答语义校正角色、并一并产出 摘要/人物信息，生成标准 `corrections.json`：
+
+```bash
+python <skill_dir>/scripts/correct_speakers.py <标题>_transcript.json \
+    --api-key $DASHSCOPE_API_KEY
+# 输出 corrections.json（speaker_roles / summary / summary_sections / person_info）
+python <skill_dir>/scripts/build_document.py <标题>_transcript.json <标题>_document.json \
+    --apply corrections.json
+```
+
+> 说明：本地说话人走 CAM++ 是按声纹聚类（模型内、快），再经 3.5B 的 LLM 语义校正兜底——比旧版「纯逐句启发式」或「纯 LLM 语义切分」更稳，直接给出「谁在何时说 + 角色是否正确」。
+
+### WeSpeaker 说话人重贴标（CAM++ 可选替换，2026-07-31 实测：等价、非更优）
+
+WeSpeaker 提供 `load_model('chinese')`（CNCeleb ResNet34，256 维）作为更强的说话人嵌入模型，可替换 CAM++ 的句子级贴标。**实测结论：在真实双人采访上与 CAM++ 分区基本等价**（翻转标号后两方法一致率 92.9%，真正差异仅 7.1% 且全在转场亚秒碎片），质量未明显更优，但需多跑一个模型、且导入更脆弱。故**默认仍用 CAM++**；仅当某片段 CAM++ 明显贴反人时，用下方工具对已有 transcript 做 WeSpeaker 重贴标（不改动主转录流程）。
+
+```bash
+# 对任意已转录 transcript.json（含句子 start/end）+ 对应音频，重贴标说话人
+python <skill_dir>/scripts/speaker_relabel_wespeaker.py \
+  --transcript <标题>_transcript.json --audio <对应音频.wav/mp4> \
+  --output <标题>_wespeaker.json --num-speakers 2
+# 对照 CAM++ vs WeSpeaker（截取片段，用 LLM 角色作参照）
+python <skill_dir>/scripts/benchmark_wespeaker.py --source <音频> --start 600 --dur 600 \
+  --work-dir _bench --api-key $DASHSCOPE_API_KEY
+```
+
+⚠️ **环境坑（wespeaker 在 torch>=2.x 导入会崩，已修）**：① `wespeaker/frontend/__init__.py` 无条件 import s3prl/w2vbert，而 s3prl 引用已删除的 `torchaudio.sox_effects`/`set_audio_backend` → 崩溃；已在 `transcribe2` venv 内改成 try/except 容错（s3prl/w2vbert 置 None，只用 tfmel 前端）。② 需 `pip install onnxruntime`（diar 子模块 import）。③ `extract_embedding` 内 `torchaudio.load` 走 torchcodec 后端（未装）→ 脚本内已 shim 为 soundfile 绕过。wespeaker 装在 `transcribe2` venv。
 
 ### Step 3.55: 同音字校对（必做，提升 .docx 稳定性）
 
@@ -198,7 +227,7 @@ python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.j
 ```
 python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "<output_dir>/<标题>.docx"
 ```
-直接渲染：标题、居中静帧（仅视频、`frame_path` 非 null）、**内容摘要**（含总结性摘要 + 分板块 H2 子标题）、人物信息（无则省略／多人多表）、文档信息（精简为 5 行：源文件 / 输入类型 / 转录工具 / 说话人识别 / 转录日期，**不再写时间码精度、摘要与人物信息**）、对话记录（每轮首句用一个**色相差异大的彩色圆点** emoji 标识不同说话人：🔴红 → 🔵蓝 → 🟢绿 → 🟡黄 → 🟣紫 → ⚫黑 → 🟤棕 → ⚪白 → 🟠橙 → 🔘灰 循环；说话人1=🔴红、说话人2=🔵蓝，默认色相差距大）。音频输入跳过静帧。依赖：`pip install python-docx pillow`。
+直接渲染：标题、居中静帧（仅视频、`frame_path` 非 null）、**内容摘要**（含总结性摘要 + 分板块 H2 子标题）、人物信息（无则省略／多人多表）、文档信息（精简为 5 行：源文件 / 输入类型 / 转录工具 / 说话人识别 / 转录日期，**不再写时间码精度、摘要与人物信息**）、对话记录（**两行制**：每轮「角色（时间）」一行、内容另起一行，轮间空一行；角色默认 采访者/受访者（两人对话）或 说话人1/2…，无 emoji/加粗/冒号）。音频输入跳过静帧。依赖：`pip install python-docx pillow`。
 
 ### Step 3.9: 交付前预览与轻量确认（清理前）
 
@@ -218,7 +247,7 @@ python <skill_dir>/scripts/build_docx.py "<output_dir>/<标题>_document.json" "
 
 ```bash
 # 保留 <标题>_document.json（可编辑的事实源，修订/overwrite 时复用，无需重跑转录）
-rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json *segments.json transcribe_config.json 输出.mp3
+rm -f _seg*.mp3 _seg*.wav _audio_*.wav 输出.wav _upload.md *_raw.txt *_transcript.json *_transcript.partial.json *segments.json transcribe_config.json 输出.mp3
 ```
 保留：`<标题>.docx`、`<标题>_document.json`、人物静帧.jpg（仅视频）。
 
@@ -240,7 +269,7 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json
 
 - ❌ 启发式方法（关键词+段落长度）：已废弃，完全不可靠。
 - ✅ 云端模式：Qwen3-ASR-Flash 转录 + LLM 语义切分（支持多说话人）。
-- ✅ 本地模式：Paraformer-large + CAM++ 在模型内说话人分离（按声纹自动聚类，免 HF Token、无需 LLM；统一中性命名为 说话人1/2/3）。
+- ✅ 本地模式（默认 FunASR Paraformer + CAM++）：Paraformer 转录 + CAM++ 说话人分离（按声纹自动聚类，免 HF Token），两人对话按「提问密度+轮长」归并为 采访者/受访者；**CAM++ 偶发贴反，必须接 LLM 语义校正（Step 3.5B 的 correct_speakers.py）兜底**。MOSS 端到端为可选回退（质量更高但慢、长音频易 OOM）。
 - Qwen3-ASR-Flash 不直接支持说话人分离；云端最优方案为「转录 + LLM 语义分段」。
 
 ## 错误处理与失败恢复
@@ -258,13 +287,13 @@ rm -f _seg*.mp3 _upload.md *_raw.txt *_transcript.json *_transcript.partial.json
 ## 注意事项
 
 - **多段音视频需用户明确说明归属**，才合并为一篇文档；未说明则各成一篇
-- **本地说话人由 CAM++ 模型内分离（无需 LLM）**；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分（启发式已废弃）。
-- **DashScope 调用统一**：音频转录用 `MultiModalConversation.call(model="qwen3-asr-flash")`；文本任务（说话人/摘要）用 `scripts/call_qwen.py`（`Generation.call`, qwen-plus）。务必 `pip install -U dashscope`，勿用已变更的 `Transcription.call`（版本兼容见 references/dashscope_setup.md）
-- **默认本地 Paraformer-large 转录**，不强制询问；仅用户明确要求用云端、SenseVoice 或提供 Key 时切
+- **本地说话人默认由 CAM++ 模型内分离，再经 LLM 语义校正（Step 3.5B correct_speakers.py）兜底**；MOSS 端到端为可选回退（质量更高但慢、长音频易 OOM）；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分（启发式已废弃）。
+- **DashScope 调用统一**：音频转录用 `MultiModalConversation.call(model="qwen3-asr-flash")`；文本任务（说话人/摘要/同音字）用 `scripts/call_qwen.py`（`Generation.call`, qwen-plus）。务必 `pip install -U dashscope`，勿用已变更的 `Transcription.call`（版本兼容见 references/dashscope_setup.md）
+- **默认本地 FunASR Paraformer-large 转录**，不强制询问；仅用户明确要求用云端、SenseVoice 或提供 Key 时切
 - **GPU 加速（本地仍默认）**：`setup_env.py` 检测到 NVIDIA GPU 会自动装 CUDA 版 torch，本地 Paraformer-large/SenseVoice 推理走 GPU（RTX 40 系约数倍提速）；无 GPU 则装 CPU 版。无论哪种，**默认仍是本地模型推理**，不切换云端
-- **输入类型自动识别**：视频才提取静帧+转 MP3；音频跳过且 `frame_path=null` 不输出静帧
-- **切段决策在选方式之后、模型自动**：云端 >5 分钟必切，本地 >20 分钟建议切，均不询问
-- **本地说话人由 CAM++ 模型内分离（无需 LLM）**；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分；支持多说话人（群访无需额外配置）；无需 HF Token、无需 pyannote
+- **输入类型自动识别**：视频才提取静帧；默认 FunASR 路径视频**需转 16k 音频**（MP3/WAV，prepare.py 自动完成）；仅 `moss` 回退路径视频免转 MP3（transcribe_local.py 内部自动提 16k WAV、用完即删）；音频 `frame_path=null` 不输出静帧
+- **切段决策在选方式之后、模型自动**：云端 >5 分钟必切，本地 FunASR >20 分钟建议切，MOSS 回退 ≤15 分钟整段直入防 OOM，均不询问
+- **本地说话人默认由 CAM++ 模型内分离、再经 LLM 语义校正（Step 3.5B）兜底**；MOSS 回退为端到端；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分；支持多说话人（群访无需额外配置）；无需 HF Token、无需 pyannote
 - **全程无需 HuggingFace**：本地说话人走 CAM++（模型内、魔搭直连），模型仅 Paraformer-large/SenseVoice；已移出 faster-whisper / pyannote
 - Windows 路径用正斜杠（`C:/...` 或相对路径，勿用 Git Bash 的 `/c/...` 写法，脚本已自动兼容转换）；`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）
 - **长文本 LLM 分段**：单次输入 ≤ 8000 字符，超长分段后合并

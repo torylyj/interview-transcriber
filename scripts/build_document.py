@@ -70,13 +70,16 @@ def clean_text(text: str) -> str:
     return _TAG_RE.sub("", text or "").strip()
 
 
-# 按中文/英文句末标点切句，保留标点
-_SPLIT_RE = re.compile(r"(?<=[。！？!?；;])")
+# 按中文/英文句末标点切句（消耗式：标点作为分隔符被直接移除，
+# 避免同说话人句子拼接时句号/逗号被夹在词中间形成「时。候」「觉。得」错位标点）。
+_SPLIT_RE = re.compile(r"[。！？!?；;]+")
 
 
 def split_sentences(text: str) -> list:
     parts = _SPLIT_RE.split(text)
-    return [p.strip() for p in parts if p and p.strip()]
+    # 去除每段首尾可能残留的句读标点（双保险）
+    cleaned = [p.strip().strip("。！？!?；;：:，、, ") for p in parts]
+    return [p for p in cleaned if p]
 
 
 def seg_duration(file_path: str) -> float:
@@ -180,8 +183,11 @@ def _parse_raw(raw: str) -> list:
 def assign_speaker_labels(sentences: list) -> dict:
     """按说话人首次出现顺序，统一命名为 说话人1/2/3……
 
-    返回 {原始 speaker_id: "说话人N"}。与旧版「逐句启发式 / 采访者受访人判定」不同，
-    这里只是中性顺序编号，不依赖提问特征，稳定且可预期。
+    若为清晰的两人对话（恰 2 个说话人），则按『提问密度』判定角色：
+    提问（含 ？/?）更多者记为 采访者，另一人记为 受访者——这正是
+    采访转录的默认输出样式（采访者（时间）/ 内容 两行制）。
+    多说话人场景保持中性 说话人N 命名，角色判定交由 corrections.json。
+    返回 {原始 speaker_id: "说话人N" / "采访者" / "受访者"}。
     """
     order = []
     seen = set()
@@ -190,6 +196,20 @@ def assign_speaker_labels(sentences: list) -> dict:
         if sp not in seen:
             seen.add(sp)
             order.append(sp)
+    if len(order) == 2:
+        # 采访者特征：提问更多（含 ？/?）、且单轮通常更短（问句短、答句长）。
+        # 双重信号避免「模型漏标问号」导致误判（如把受访者的长回答误当采访者）。
+        q = {sp: sum((x.get("text", "").count("？") + x.get("text", "").count("?"))
+                     for x in sentences if x.get("speaker") == sp) for sp in order}
+        n = {sp: sum(1 for x in sentences if x.get("speaker") == sp) for sp in order}
+        tot = {sp: sum(len(x.get("text", "")) for x in sentences if x.get("speaker") == sp) for sp in order}
+        avg = {sp: (tot[sp] / n[sp]) if n[sp] else 0.0 for sp in order}
+        # 评分：提问多者优先；并列时单轮更短者为采访者
+        interviewer = max(order, key=lambda sp: (q[sp], -avg[sp]))
+        return {
+            order[0]: ("采访者" if order[0] == interviewer else "受访者"),
+            order[1]: ("采访者" if order[1] == interviewer else "受访者"),
+        }
     return {sp: f"说话人{idx + 1}" for idx, sp in enumerate(order)}
 
 def apply_role_labels(turns: list, role_map: dict) -> list:
@@ -236,6 +256,27 @@ def _finalize_turn(cur: dict) -> dict:
         "text": full,
         "paragraphs": paras,
     }
+
+
+def merge_speaker_jitter(sentences: list, max_short_chars: int = 10) -> list:
+    """CAM++ 句子级聚类抖动兜底。
+
+    相邻两句 speaker 不同、但后句极短（如"嗯""对""是的"），
+    大概率是同一人被误切成两人，归并到前句 speaker，避免碎成短 turn。
+    仅在「相邻 + 后句短于阈值 + 前句不短」时合并，保守以防吞掉真实换人。
+    """
+    if len(sentences) < 2:
+        return sentences
+    out = [dict(sentences[0])]
+    for s in sentences[1:]:
+        cur = dict(s)
+        prev = out[-1]
+        if (prev["speaker"] != cur["speaker"]
+                and len(cur["text"]) <= max_short_chars
+                and len(prev["text"]) > max_short_chars):
+            cur["speaker"] = prev["speaker"]
+        out.append(cur)
+    return out
 
 
 def group_turns(sentences: list) -> list:
@@ -334,7 +375,8 @@ def main():
             print(f"  ⚠️ 读取 {corrected_path} 失败，回退用原 transcript：{e}")
     config_segs = load_config(args.config)
     sentences = parse_sentences(data, config_segs)
-    print(f"解析到 {len(sentences)} 个句子（Paraformer+CAM++ 为真实说话人+句级时间码；SenseVoice 为整段插值）")
+    sentences = merge_speaker_jitter(sentences)
+    print(f"解析到 {len(sentences)} 个句子（Paraformer+CAM++ 为真实说话人+句级时间码；SenseVoice 为整段插值；已做说话人抖动合并）")
 
     # 说话人分布（CAM++ 已聚类）
     spk_counts = {}

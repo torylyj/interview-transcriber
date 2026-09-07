@@ -24,12 +24,12 @@ pip install -i $PIP_MIRROR pillow         # 静帧清晰度计算（extract_fram
 | 音频转录 | `dashscope.MultiModalConversation.call` | `qwen3-asr-flash` | **必须**用多模态接口（传入 `audio` 文件 URL），不能用 `Generation` / `Transcription` |
 | 文本任务（说话人识别 / 摘要） | `dashscope.Generation.call` | `qwen-plus` | 统一通过 `scripts/call_qwen.py` 调用，结果格式 `message` |
 
-**设置 API Key（两种等价方式，任选其一）：**
-```python
-dashscope.api_key = "sk-xxxx"          # 代码中直接赋值
-# 或
-import os
-os.environ["DASHSCOPE_API_KEY"] = "sk-xxxx"   # 推荐，call_qwen.py 默认读取此环境变量
+**设置 API Key（统一方式）：** 通过环境变量 `DASHSCOPE_API_KEY` 提供，所有脚本（`call_qwen.py`、`transcribe_qwen.py`、`correct_speakers.py` 等）默认从该环境变量读取。**请勿把密钥写进配置文件或代码**，脚本未检测到环境变量时会明确报错退出。
+```bash
+# 在启动 Agent / 运行脚本前设置（用你自己的真实密钥替换）
+export DASHSCOPE_API_KEY=sk-你的密钥
+# Windows PowerShell 下用：
+# $env:DASHSCOPE_API_KEY = "sk-你的密钥"
 ```
 
 **版本兼容风险提示：**
@@ -47,11 +47,10 @@ echo "..." | python <skill_dir>/scripts/call_qwen.py --model qwen-plus
 
 ## 转录配置文件示例 (config.json)
 
-**云端转录（mode: cloud）：**
+**云端转录（mode: cloud，API Key 走环境变量 `DASHSCOPE_API_KEY`，不写入配置）：**
 ```json
 {
   "mode": "cloud",
-  "api_key": "sk-xxxxxxxxxxxxxxxx",
   "title": "26-0509 车辆学院直博生",
   "source_file": "输入.mp4",
   "input_type": "video",

@@ -42,9 +42,10 @@ PYPI_MIRRORS = [
     "https://pypi.tuna.tsinghua.edu.cn/simple",                  # 清华
     "https://mirrors.cloud.tencent.com/pypi/simple",                 # 腾讯云
 ]
-# 默认安装：覆盖云端 + 本地（SenseVoice/Paraformer）两种模式的最小集合
+# 默认安装：覆盖云端 + 本地（MOSS 端到端 / SenseVoice / Paraformer）两种模式的最小集合
 PY_DEPS = [
-    "funasr", "modelscope",          # 本地转录（模型从魔搭社区国内直连）
+    "funasr", "modelscope",          # 本地转录（Paraformer/SenseVoice，模型从魔搭社区国内直连）
+    "transformers",                   # MOSS 端到端推理（默认本地模型）
     "python-docx", "pillow",          # 生成 .docx + 静帧清晰度
     "dashscope",                       # 云端转录 + 说话人/摘要 LLM
 ]
@@ -53,10 +54,14 @@ PY_DEPS = [
 #   "pyannote.audio"  # 声纹分离，需 HF Token；已废弃——本地说话人改由 CAM++ 嵌入
 OPTIONAL_DEPS = ["faster-whisper", "pyannote.audio"]
 
+# MOSS 端到端推理包（默认本地模型的推理代码，git 仓库，pip 直接装）
+MOSS_REPO = "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize.git"
+
 # 包名 -> import 模块名（用于「已装则跳过」真实探测，避免重复下载）
 PKG_IMPORT = {
     "funasr": "funasr",
     "modelscope": "modelscope",
+    "transformers": "transformers",
     "python-docx": "docx",
     "pillow": "PIL",
     "dashscope": "dashscope",
@@ -128,6 +133,27 @@ def install_python_deps(extra: bool = False, force: bool = False):
     return True
 
 
+def install_moss_package() -> bool:
+    """安装 MOSS 端到端推理包（pip 直接装 git 仓库，best-effort，失败不致命）。
+
+    仅安装推理代码（moss_transcribe_diarize）；其依赖 transformers 已由 PY_DEPS 安装。
+    模型权重在首次转录时由 transcribe_local.py 按本地目录 → ModelScope 自动下载。
+    """
+    if is_importable("moss_transcribe_diarize"):
+        log("↷ moss_transcribe_diarize 已安装，跳过")
+        return True
+    log("→ 安装 moss_transcribe_diarize（MOSS 推理包，git 仓库）…")
+    cmd = [sys.executable, "-m", "pip", "install", "-e", MOSS_REPO, "--no-deps"]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+        log("  ✅ moss_transcribe_diarize 安装成功（默认本地模型 MOSS 可用）")
+        return True
+    except Exception as e:
+        log(f"  ⚠️ moss_transcribe_diarize 安装失败（不影响 Paraformer/SenseVoice/云端）: {e}")
+        log("    手动安装：pip install -e https://github.com/OpenMOSS/MOSS-Transcribe-Diarize.git --no-deps")
+        return False
+
+
 def detect_gpu() -> bool:
     """检测是否有可用的 NVIDIA GPU（用于选择 torch 版本）。"""
     # 优先用已装的 torch 直接探；未装则退化为 nvidia-smi
@@ -193,8 +219,9 @@ def which(prog):
 # ── 安装后自检（review）：逐项核对，漏装一目了然 ──
 # 元组：(import 名, 展示名, 安装包名)
 VERIFY_PACKAGES = [
-    ("funasr", "funasr（本地 ASR）", "funasr"),
+    ("funasr", "funasr（本地 ASR / Paraformer / SenseVoice）", "funasr"),
     ("modelscope", "modelscope（模型下载）", "modelscope"),
+    ("transformers", "transformers（MOSS 端到端推理，默认本地模型）", "transformers"),
     ("docx", "python-docx（生成 .docx）", "python-docx"),
     ("PIL", "pillow（静帧清晰度）", "pillow"),
     ("dashscope", "dashscope（云端转录 + 说话人 LLM）", "dashscope"),
@@ -260,9 +287,8 @@ def download_ffmpeg():
         return
 
     os.makedirs(TOOLS_FFMPEG_DIR, exist_ok=True)
+    # 使用默认 SSL 上下文（保留证书与主机名校验）；下载失败由下方 try/except 给出明确错误
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     ok = True
     for exe, remote in FFMPEG_FILES.items():
         url = f"{FFMPEG_MIRROR_BASE}/{remote}"
@@ -319,6 +345,7 @@ def main():
         log("   若只想用云端 Qwen3-ASR-Flash（不装本地推理栈），可改用 `python setup_env.py --deps-only` 仅装轻量依赖。")
         install_torch(gpu, force=a.force)
         install_python_deps(extra=a.extras, force=a.force)
+        install_moss_package()  # best-effort，失败不影响 Paraformer/SenseVoice/云端
     if not a.deps_only:
         download_ffmpeg()
 

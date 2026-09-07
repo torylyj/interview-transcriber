@@ -109,7 +109,11 @@ def main():
     with open(args.config, "r", encoding="utf-8") as f:
         config = json.load(f)
 
-    api_key = config["api_key"]
+    # API Key 统一从环境变量 DASHSCOPE_API_KEY 读取，不写入配置文件
+    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    if not api_key:
+        print("❌ 未设置 DASHSCOPE_API_KEY 环境变量。请先 export DASHSCOPE_API_KEY=sk-xxx 再运行。")
+        sys.exit(1)
     segments = config["segments"]
     output_dir = config.get("output_dir", ".")
     doc_title = config.get("title", "转录文档")

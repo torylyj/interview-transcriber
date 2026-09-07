@@ -26,6 +26,70 @@ import json
 import argparse
 import re
 
+# Windows 默认 GBK 控制台打印 emoji 会触发 UnicodeEncodeError：
+# stdout 编码不支持时降级为可替换字符，避免脚本崩溃
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+
+def _md_escape(text, table_cell=False):
+    """对动态内容做 Markdown/HTML 转义，防止链接/HTML/表格/公式注入。
+
+    - & < >：HTML 实体转义（防 `<script>` 等注入）
+    - [ ]：转义方括号（防 `[x](javascript:...)` 链接注入）
+    - |：转义竖线（防破坏表格结构）
+    - 表格单元格：先折叠空白并去除首尾空白，再对以 = + - @ 开头的单元格
+      统一前置安全前缀 '（防 Excel 公式注入；前导空白不再能绕过判断）
+    """
+    if text is None:
+        return ""
+    s = str(text)
+    if table_cell:
+        # 折叠所有空白（含制表符/换行/连续空格）并去首尾，避免 ' =SUM(...)'、'\t@x' 绕过前缀判断
+        s = re.sub(r"\s+", " ", s).strip()
+    s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    s = s.replace("[", "\\[").replace("]", "\\]")
+    s = s.replace("|", "\\|")
+    if table_cell and s[:1] in ("=", "+", "-", "@"):
+        s = "'" + s
+    return s
+
+
+def person_fields(person):
+    """将各种 person_info 结构统一成 [(label, value), ...]（过滤空值）。
+
+    兼容三种结构：
+      - 新结构：{"name":..., "fields":[{"field":..., "value":...}]}
+      - 扁平结构（correct_speakers.py 产出）：{"role","name","school","major","grade"}
+      - 旧结构：{"field":..., "value":...}
+    """
+    if not isinstance(person, dict):
+        return []
+    if "fields" in person and isinstance(person.get("fields"), list):
+        return [(it.get("field", ""), it.get("value", ""))
+                for it in person["fields"] if isinstance(it, dict)]
+    if any(k in person for k in ("school", "major", "grade", "role")):
+        mapping = [
+            ("角色", person.get("role", "")),
+            ("姓名", person.get("name", "")),
+            ("学校", person.get("school", "")),
+            ("专业", person.get("major", "")),
+            ("年级", person.get("grade", "")),
+        ]
+        return [(k, v) for k, v in mapping if v]
+    if "field" in person:
+        return [(person.get("field", ""), person.get("value", ""))]
+    return []
+
+
 try:
     from docx import Document
     from docx.shared import Inches, Pt
@@ -168,17 +232,12 @@ def build(doc, data, base_dir):
     # ── 人物信息（条件性：无信息整段省略；多人每人一个表格）──
     person_info = data.get("person_info") or []
     if person_info:
-        # 兼容两种结构：
-        #   新结构 = [{"name": "...", "fields": [{field,value}]}, ...]（支持多人）
-        #   旧结构 = [{"field": "...", "value": "..."}, ...]（单人，整体当一个人的字段）
-        new_style = isinstance(person_info[0], dict) and ("fields" in person_info[0])
-        people = person_info if new_style else [{"name": "", "fields": person_info}]
         doc.add_heading("\U0001F464 人物信息", level=1)
-        for person in people:
-            name = person.get("name", "") if isinstance(person, dict) else ""
-            fields = person.get("fields", []) if isinstance(person, dict) else []
+        for person in person_info:
+            fields = person_fields(person)
             if not fields:
                 continue
+            name = person.get("name", "") if isinstance(person, dict) else ""
             if name:
                 pname = doc.add_paragraph()
                 pname.add_run(name).bold = True
@@ -191,10 +250,10 @@ def build(doc, data, base_dir):
             hdr = table.rows[0].cells
             hdr[0].paragraphs[0].add_run("字段").bold = True
             hdr[1].paragraphs[0].add_run("内容").bold = True
-            for item in fields:
+            for label, value in fields:
                 row = table.add_row().cells
-                add_inline_runs(row[0].paragraphs[0], item.get("field", ""))
-                add_inline_runs(row[1].paragraphs[0], item.get("value", ""))
+                add_inline_runs(row[0].paragraphs[0], label)
+                add_inline_runs(row[1].paragraphs[0], value)
             doc.add_paragraph("")
 
     # ── 文档信息 ──
@@ -214,32 +273,26 @@ def build(doc, data, base_dir):
         q.add_run(line)
     doc.add_paragraph("")
 
-    # ── 对话记录 ──
+    # ── 对话记录（两行制：角色（时间）一行 + 内容另起一行，轮间空一行）──
     doc.add_heading("\U0001F4AC 对话记录", level=1)
     conversation = data.get("conversation") or []
     if not conversation:
         print("  ⚠️ 警告: conversation 为空，文档将缺少对话记录")
-    emoji_state = {}
     for turn in conversation:
         speaker = turn.get("speaker", "")
-        emoji = _speaker_emoji(speaker, emoji_state)
         paras = turn.get("paragraphs") or []
-        if not paras:
-            # 旧结构回退：整块输出
-            label = f"{emoji} **{speaker}** {turn.get('timestamp', '')}".strip()
-            p_label = doc.add_paragraph()
-            add_inline_runs(p_label, label)
-            p_text = doc.add_paragraph()
-            add_inline_runs(p_text, turn.get("text", ""))
-            continue
-        # 说话人标签（每轮一次，含首段时间码；首句用色相差异大的彩色圆点标识）
-        p_label = doc.add_paragraph()
-        add_inline_runs(p_label, f"{emoji} **{speaker}** {paras[0]['ts']}".strip())
-        # 各段：首段接在标签后（时间码已在标签），续段以时间码起头
-        for i, para in enumerate(paras):
-            txt = para["text"] if i == 0 else f"{para['ts']} {para['text']}"
-            p_text = doc.add_paragraph()
-            add_inline_runs(p_text, txt)
+        ts = paras[0]["ts"] if paras else turn.get("timestamp", "")
+        ts_disp = ts.strip("[]") if ts else ""
+        text = paras[0]["text"] if paras else turn.get("text", "")
+        # 第 1 行：角色（时间）——时间码去方括号，符合 角色（MM:SS）样式
+        doc.add_paragraph(f"{speaker}（{ts_disp}）")
+        # 第 2 行：内容
+        doc.add_paragraph(text)
+        # 续段（长独白自动分段）以时间码起头，逐段换行
+        for para in paras[1:]:
+            doc.add_paragraph(f"{para['ts'].strip('[]')} {para['text']}")
+        # 轮间空一行
+        doc.add_paragraph("")
 
 
 def export_markdown(data, md_path, skip_frame=False):
@@ -248,19 +301,19 @@ def export_markdown(data, md_path, skip_frame=False):
     skip_frame=True 时不写入本地静帧路径（在线平台用），
     改由 `dws doc media insert` 上传，避免在线文档出现打不开的本地图。
     """
-    lines = [f"# {data.get('title', '转录文档')}", ""]
+    lines = [f"# {_md_escape(data.get('title', '转录文档'))}", ""]
 
     frame_path = data.get("frame_path")
     if frame_path and not skip_frame:
-        lines += [f"![人物静帧]({frame_path})", ""]
+        lines += [f"![人物静帧]({_md_escape(frame_path)})", ""]
 
-    lines += ["---", "", "## \U0001F4DD 内容摘要", "", data.get("summary", "")]
+    lines += ["---", "", "## \U0001F4DD 内容摘要", "", _md_escape(data.get("summary", ""))]
     summary_sections = data.get("summary_sections") or []
     for sec in summary_sections:
         if not isinstance(sec, dict):
             continue
-        title = str(sec.get("title", "")).strip()
-        content = str(sec.get("content", "")).strip()
+        title = _md_escape(str(sec.get("title", "")).strip())
+        content = _md_escape(str(sec.get("content", "")).strip())
         if not content:
             continue
         if title:
@@ -270,46 +323,43 @@ def export_markdown(data, md_path, skip_frame=False):
     person_info = data.get("person_info") or []
     if person_info:
         lines.append("## \U0001F464 人物信息")
-        new_style = isinstance(person_info[0], dict) and ("fields" in person_info[0])
-        people = person_info if new_style else [{"name": "", "fields": person_info}]
-        for person in people:
-            name = person.get("name", "") if isinstance(person, dict) else ""
-            fields = person.get("fields", []) if isinstance(person, dict) else []
+        for person in person_info:
+            fields = person_fields(person)
             if not fields:
                 continue
+            name = _md_escape(person.get("name", "")) if isinstance(person, dict) else ""
             if name:
                 lines.append(f"### {name}")
             lines += ["", "| 字段 | 内容 |", "|------|------|"]
-            for item in fields:
-                lines.append(f"| {item.get('field', '')} | {item.get('value', '')} |")
+            for label, value in fields:
+                lines.append(f"| {_md_escape(label, table_cell=True)} | {_md_escape(value, table_cell=True)} |")
             lines.append("")
     lines += ["", "---", "", "## \U0001F4CB 文档信息", ""]
     lines += [
-        f"> 源文件：{data.get('source_file', '')}",
-        f"> 输入类型：{data.get('input_type', '')}",
-        f"> 转录工具：{data.get('transcription_tool', '')}",
-        f"> 说话人识别：{data.get('speaker_method', 'CAM++ 说话人嵌入（本地）/ LLM 语义切分（云端）')}",
-        f"> 转录日期：{data.get('date', '')}",
+        f"> 源文件：{_md_escape(data.get('source_file', ''))}",
+        f"> 输入类型：{_md_escape(data.get('input_type', ''))}",
+        f"> 转录工具：{_md_escape(data.get('transcription_tool', ''))}",
+        f"> 说话人识别：{_md_escape(data.get('speaker_method', 'CAM++ 说话人嵌入（本地）/ LLM 语义切分（云端）'))}",
+        f"> 转录日期：{_md_escape(data.get('date', ''))}",
         "",
         "---",
         "",
         "## \U0001F4AC 对话记录",
         "",
     ]
-    emoji_state = {}
     for turn in data.get("conversation") or []:
-        speaker = turn.get("speaker", "")
-        emoji = _speaker_emoji(speaker, emoji_state)
+        speaker = _md_escape(turn.get("speaker", ""))
         paras = turn.get("paragraphs") or []
-        if not paras:
-            lines.append(f"{emoji} **{speaker}** {turn.get('timestamp', '')}".strip())
-            lines.append(turn.get("text", ""))
-            lines.append("")
-            continue
-        lines.append(f"{emoji} **{speaker}** {paras[0]['ts']}".strip())
-        for i, para in enumerate(paras):
-            lines.append(para["text"] if i == 0 else f"{para['ts']} {para['text']}")
-            lines.append("")
+        ts = paras[0]["ts"] if paras else turn.get("timestamp", "")
+        ts_disp = ts.strip("[]") if ts else ""
+        text = _md_escape(paras[0]["text"] if paras else turn.get("text", ""))
+        # 第 1 行：角色（时间）——时间码去方括号；第 2 行：内容
+        lines.append(f"{speaker}（{ts_disp}）")
+        lines.append(text)
+        for para in paras[1:]:
+            lines.append(f"{para['ts'].strip('[]')} {_md_escape(para['text'])}")
+        # 轮间空行：用全角空格占位，避免钉钉在线文档吞掉空段落
+        lines.append("\u3000")
 
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))

@@ -24,10 +24,47 @@ import json
 import argparse
 import threading
 import functools
+import subprocess
 from datetime import datetime
 
 # 所有 print 立即刷新，避免长耗时步骤的输出被缓冲，导致调用方（Agent）误以为卡死
 print = functools.partial(print, flush=True)
+
+# 视频扩展名：segments 可直接指向视频文件，脚本自动提取音轨（免手动转 MP3）
+VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv", ".webm"}
+
+
+def resolve_seg_path(seg_file: str, output_dir: str) -> str:
+    """segments 里的 file 支持绝对路径或相对 output_dir 的相对路径。"""
+    if os.path.isabs(seg_file) and os.path.exists(seg_file):
+        return seg_file
+    cand = os.path.join(output_dir, seg_file)
+    return cand if os.path.exists(cand) else seg_file
+
+
+def ensure_audio(path: str, workdir: str):
+    """视频输入 → 自动提取 16k 单声道 WAV（一步隐式完成，无需预先转 MP3）。
+
+    返回 (音频路径, 是否临时文件)。音频输入原样返回。
+    WAV(pcm_s16le) 比 MP3 免去有损编码，速度更快且无音质损失。
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in VIDEO_EXT:
+        return path, False
+    base = os.path.splitext(os.path.basename(path))[0]
+    wav = os.path.join(workdir, f"_audio_{base}.wav")
+    if not os.path.exists(wav):
+        print(f"  🎬 检测到视频输入，自动提取音轨（16k 单声道 WAV）→ {os.path.basename(wav)}")
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-i", path, "-vn", "-acodec", "pcm_s16le",
+             "-ar", "16000", "-ac", "1", wav],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0 or not os.path.exists(wav):
+            tail = (r.stderr or "").strip().splitlines()[-3:]
+            print("  ❌ 音轨提取失败：" + " / ".join(tail))
+            sys.exit(1)
+    return wav, True
 
 
 def with_timeout(seconds, func, *args, **kwargs):
@@ -135,6 +172,16 @@ MODEL_CONFIGS = {
         "funasr_vad": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
         "funasr_punc": "iic/punc_ct-transformer_cn-en-common-vocab471067-large",
         "funasr_spk": "iic/speech_campplus_sv_zh-cn_16k-common",
+        "needs_hf": False,
+    },
+    "moss": {
+        "name": "MOSS-Transcribe-Diarize 0.9B",
+        "source": "ModelScope 魔搭社区（OpenMOSS / 复旦）",
+        "source_url": "https://modelscope.cn/models/OpenMOSS/MOSS-Transcribe-Diarize",
+        "size": "~1.8GB",
+        "quality": "⭐⭐⭐⭐⭐ (端到端：转录+说话人+时间戳一次生成)",
+        "description": "复旦 OpenMOSS 端到端模型（2026-07 开源，INTERSPEECH 2026 多语言转录挑战赛第一）。转录/说话人/时间戳由同一模型一次生成，根除 CAM++ 级联式『短应答贴错人/乱换行』问题；标点自然、中文精度高。不支持 preset_spk_num（人数由模型自判）；同人嗓音变化可能被拆成多个 Sxx，由 moss_assign_roles 按提问密度归并为 采访者/受访者。",
+        "backend": "moss",
         "needs_hf": False,
     },
 }
@@ -356,12 +403,12 @@ def generate_raw_text(merged: list) -> str:
     return "\n".join(lines)
 
 
-def generate_transcript_json(merged: list, title: str, source_file: str, model_name: str, frame_path, input_type: str) -> dict:
+def generate_transcript_json(merged: list, title: str, source_file: str, model_name: str, frame_path, input_type: str, speaker_method: str = "CAM++ 说话人嵌入（FunASR spk_model，按声纹自动聚类）") -> dict:
     """生成结构化转录数据（不生成 Markdown，供后续 LLM 处理与直接构建 .docx 使用）
 
     frame_path 为 None 时（音频输入）不输出静帧图。
     raw_text 为带时间码和 SPEAKER 标签的原始转录文本，供 Step 3.5 角色命名使用。
-    说话人分离由 CAM++ 说话人嵌入在模型内完成（speaker_method 字段标明）。
+    speaker_method 标明说话人识别方式（MOSS 端到端 / CAM++ 模型内 / 云端 LLM）。
     """
     return {
         "title": title,
@@ -370,7 +417,7 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
         "input_type": input_type,
         "transcription_tool": model_name,
         "model": "local",
-        "speaker_method": "CAM++ 说话人嵌入（FunASR spk_model，按声纹自动聚类）",
+        "speaker_method": speaker_method,
         "date": datetime.now().strftime("%Y-%m-%d"),
         "raw_text": generate_raw_text(merged),
         # 结构化句子列表（含绝对时间码，秒），供 build_document.py 直接消费，
@@ -379,17 +426,151 @@ def generate_transcript_json(merged: list, title: str, source_file: str, model_n
     }
 
 
+# ── MOSS 端到端后端（默认本地模型） ───────────────────────────
+# 模型本地目录（已下载缓存，优先）；缺失时按 ModelScope id 自动下载。
+MOSS_MODEL_LOCAL = r"H:\models\models\OpenMOSS--MOSS-Transcribe-Diarize\snapshots\master"
+MOSS_MODEL_ID = "OpenMOSS/MOSS-Transcribe-Diarize"
+
+def load_moss_model():
+    """加载 MOSS-Transcribe-Diarize（transformers + moss_transcribe_diarize 推理包）。"""
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoProcessor
+        from moss_transcribe_diarize import parse_transcript
+        from moss_transcribe_diarize.inference_utils import (
+            build_transcription_messages, generate_transcription, resolve_device,
+        )
+    except ImportError as e:
+        print(f"错误: MOSS 依赖未安装（transformers / moss_transcribe_diarize）: {e}")
+        print("  请运行: python <skill_dir>/scripts/setup_env.py （已包含 MOSS 依赖）")
+        sys.exit(1)
+    device = resolve_device("auto")
+    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+    # 优先用本地已下载目录；否则从 ModelScope 下载到缓存
+    if os.path.isdir(MOSS_MODEL_LOCAL):
+        model_dir = MOSS_MODEL_LOCAL
+    else:
+        try:
+            from modelscope import snapshot_download
+            model_dir = snapshot_download(MOSS_MODEL_ID,
+                                          cache_dir=os.path.join(os.path.dirname(MOSS_MODEL_LOCAL), ".."))
+        except Exception as e:
+            print(f"错误: 本地模型不存在且 ModelScope 下载失败: {e}")
+            sys.exit(1)
+    print(f"加载 MOSS 模型（{model_dir}，device={device}，dtype={dtype}）...")
+    t0 = datetime.now()
+    model = (AutoModelForCausalLM
+             .from_pretrained(model_dir, trust_remote_code=True, dtype="auto")
+             .to(dtype).to(device).eval())
+    processor = AutoProcessor.from_pretrained(model_dir, trust_remote_code=True)
+    print(f"  ✅ MOSS 模型加载成功（{int((datetime.now()-t0).total_seconds())}s）")
+    return model, processor, device, dtype
+
+
+def transcribe_moss(model, processor, device, dtype, audio_path, max_new_tokens=32768):
+    """MOSS 端到端推理单段音频，返回 (raw_text, segments)。"""
+    from moss_transcribe_diarize import parse_transcript
+    from moss_transcribe_diarize.inference_utils import (
+        build_transcription_messages, generate_transcription,
+    )
+    messages = build_transcription_messages(audio_path)
+    result = generate_transcription(
+        model, processor, messages,
+        max_new_tokens=max_new_tokens, do_sample=False,
+        device=device, dtype=dtype,
+    )
+    raw = result.get("text", "")
+    segments = []
+    try:
+        for seg in parse_transcript(raw):
+            if hasattr(seg, "start"):
+                segments.append({"start": seg.start, "end": seg.end,
+                                 "speaker": seg.speaker, "text": seg.text})
+            else:
+                segments.append(dict(seg))
+    except Exception as e:
+        print(f"  [warn] MOSS parse_transcript 失败，保留原始文本: {e}")
+    print(f"    生成 {len(segments)} 个文本片段")
+    return raw, segments
+
+
+def moss_assign_roles(segments):
+    """MOSS 可能把同一说话人拆成多个 Sxx（嗓音状态变化）。
+
+    按『采访者特征』把说话人归并为 采访者/受访者 两角：采访者提问更多、
+    且单轮通常更短。双重信号避免『模型漏标问号』导致无法归并。
+    仅当能清晰区分出一组采访者、一组受访者时才归并，否则保留原始 Sxx
+    （交由 build_document 中性命名 / corrections 处理）。
+    """
+    from collections import defaultdict
+    q = defaultdict(int)
+    n = defaultdict(int)
+    tot = defaultdict(int)
+    for s in segments:
+        sp = s["speaker"]
+        t = s.get("text", "") or ""
+        q[sp] += t.count("？") + t.count("?")
+        n[sp] += 1
+        tot[sp] += len(t)
+    speakers = list(q.keys())
+    if len(speakers) < 2:
+        return segments
+    avg = {sp: (tot[sp] / n[sp]) if n[sp] else 0.0 for sp in speakers}
+    maxq = max(q.values())
+    if maxq > 0:
+        # 有提问标记：提问量达最高者一半以上者视为采访者
+        interviewer_candidates = {sp for sp in speakers if q[sp] >= 0.5 * maxq}
+    else:
+        # 无提问标记（模型漏标问号）：取平均轮长最短者及与之接近者为采访者
+        minavg = min(avg.values())
+        interviewer_candidates = {sp for sp in speakers if avg[sp] <= 1.5 * minavg}
+    if 0 < len(interviewer_candidates) < len(speakers):
+        for s in segments:
+            s["speaker"] = "SPEAKER_00" if s["speaker"] in interviewer_candidates else "SPEAKER_01"
+    return segments
+
+
 # ── 主流程 ────────────────────────────────────────────────────
 
+def merge_short_segments(segs, min_dur=0.6):
+    """时长兜底合并：<min_dur 秒的片段并入前一句，消除 CAM++ 转场亚秒碎片。
+
+    与 build_document.merge_speaker_jitter（按文本长度 ≤10 字）互补：
+    此处按【时长】合并，专治 0.3-0.6s 的短碎片（如"我觉得""嗯嗯"抢话尾），
+    文本长度法对此类无效。首句过短则并入后一句。
+    """
+    if not segs:
+        return segs
+    out = []
+    for s in segs:
+        seg = dict(s)
+        dur = seg.get("end", 0) - seg.get("start", 0)
+        if out and dur < min_dur:
+            prev = out[-1]
+            prev["end"] = max(prev["end"], seg.get("end", prev["end"]))
+            prev["text"] = prev["text"] + seg["text"]
+            continue
+        out.append(seg)
+    # 首句过短：并入后一句（时间起点取更早者）
+    if len(out) >= 2 and (out[0].get("end", 0) - out[0].get("start", 0)) < min_dur:
+        nxt = out[1]
+        nxt["start"] = min(nxt["start"], out[0].get("start", nxt["start"]))
+        nxt["text"] = out[0]["text"] + nxt["text"]
+        out.pop(0)
+    return out
+
+
 def main():
-    parser = argparse.ArgumentParser(description="本地转录（阿里达摩院中文模型 + CAM++ 说话人分离）")
+    parser = argparse.ArgumentParser(description="本地转录（MOSS 端到端 / Paraformer+CAM++ / SenseVoice）")
     parser.add_argument("--config", required=True, help="JSON 配置文件路径")
     parser.add_argument(
         "--model",
         default=None,
-        choices=["sensevoice", "paraformer"],
-        help="转录模型: paraformer (默认,高精度) | sensevoice (轻量可选)",
+        choices=["paraformer", "sensevoice", "moss"],
+        help="转录模型: paraformer (默认,高精度) | sensevoice (轻量更快) | moss (端到端可选)",
     )
+    parser.add_argument("--max-new-tokens", type=int, default=32768,
+                        help="MOSS 推理最大新 token 数（长音频可加大）")
 
     args = parser.parse_args()
 
@@ -402,13 +583,14 @@ def main():
     frame_path = config.get("frame_path")
     segments = config.get("segments", [])
 
-    # 确定模型
+    # 确定模型（默认 FunASR Paraformer 高精度；moss 端到端为可选回退）
     model_key = args.model or config.get("model", "paraformer")
     if model_key not in MODEL_CONFIGS:
         print(f"错误: 未知模型 '{model_key}'，可选: {', '.join(MODEL_CONFIGS.keys())}")
         sys.exit(1)
 
     model_cfg = MODEL_CONFIGS[model_key]
+    backend = model_cfg.get("backend", "funasr")
 
     if not segments:
         print("错误: 配置中缺少 segments（音频切段列表）")
@@ -419,7 +601,10 @@ def main():
     print(f"  模型: {model_cfg['name']} ({model_cfg['quality']})")
     print(f"  下载源: {model_cfg['source']}")
     print(f"  大小: {model_cfg['size']}")
-    print(f"  说话人: CAM++ 说话人嵌入（模型内自动聚类，无需 LLM 切分）")
+    if backend == "moss":
+        print(f"  说话人: MOSS 端到端（转录+说话人+时间戳一次生成，按提问密度归并角色）")
+    else:
+        print(f"  说话人: CAM++ 说话人嵌入（模型内自动聚类，无需 LLM 切分）")
     print(f"  共 {len(segments)} 个音频段")
     print(f"{'='*60}\n")
 
@@ -428,87 +613,123 @@ def main():
     print(f"   若本地尚未缓存，需联网下载，耗时约 1–5 分钟，请耐心等待；")
     print(f"   下载完成后会自动缓存，后续转录秒级启动。\n")
 
-    # 加载 ASR 模型（Paraformer(nat) 主模型已同载 vad+punc+spk，走 punc_segment 句子级说话人分离）
-    asr_model, asr_key = load_funasr_model(model_key)
-    # 独立 punc 模型仅作兜底（nat 的标点已在 punc_segment 内完成，通常无需）。
-    punc_model = None
-    # 强制说话人数：街头采访/双人对话建议在 config 里设 "preset_spk_num": 2，
-    # 可显著提升 2 人分离稳定性；不设则由 CAM++ 自动判定人数。
-    preset_spk_num = config.get("preset_spk_num")
-    if preset_spk_num:
-        print(f"  强制说话人数: preset_spk_num={preset_spk_num}")
-
-    # 逐段处理
     all_aligned = []
     segment_offsets = []
 
-    for i, seg in enumerate(segments):
-        seg_file = seg["file"]
-        seg_offset = seg.get("offset", 0)
-        segment_offsets.append(seg_offset)
-
-        print(f"\n--- 段 {i+1}/{len(segments)}: {seg_file} (偏移 {seg_offset}s) ---")
-
-        # a. ASR 转录（句子级说话人分离 + 标点，一次 generate 产出）
-        asr_segments = transcribe_funasr(asr_model, seg_file, asr_key, punc_model=punc_model, preset_spk_num=preset_spk_num)
-
-        if not asr_segments:
-            print("  ⚠️ 本段无转录结果，跳过")
-            all_aligned.append([])
-            continue
-
-        # b. 说话人已由 CAM++ 在模型内分离（transcribe_funasr 返回的 speaker
-        #    字段即声纹聚类 id）；SenseVoice 路径未返回 speaker 时回退 SPEAKER_00。
-        aligned = [{"speaker": s.get("speaker", "SPEAKER_00"), "text": s["text"], "start": s["start"], "end": s["end"]} for s in asr_segments]
-        all_aligned.append(aligned)
-
-        # 预览
-        for item in aligned[:5]:
-            print(f"  [{item['start']:.1f}-{item['end']:.1f}] {item['speaker']}: {item['text']}")
-        if len(aligned) > 5:
-            print(f"  ... 共 {len(aligned)} 个片段")
-
-        # 每处理完一段就落盘一次部分结果，避免被超时 / 异常中断时前功尽弃
+    def _save_partial():
         try:
             partial = merge_aligned_segments(all_aligned, segment_offsets)
+            if backend == "moss":
+                partial = moss_assign_roles(partial)
+            sp_method = ("MOSS-Transcribe-Diarize 端到端（转录+说话人+时间戳一次生成）"
+                         if backend == "moss"
+                         else "CAM++ 说话人嵌入（FunASR spk_model，按声纹自动聚类）")
             partial_path = os.path.join(output_dir, f"{doc_title}_transcript.partial.json")
             with open(partial_path, "w", encoding="utf-8") as pf:
                 json.dump(
                     generate_transcript_json(
                         partial, doc_title, source_file, model_cfg["name"],
                         frame_path, config.get("input_type", "video"),
+                        speaker_method=sp_method,
                     ),
                     pf, ensure_ascii=False, indent=2,
                 )
         except Exception:
             pass  # 检查点写入失败不影响主流程
 
-    # 合并
-    merged = merge_aligned_segments(all_aligned, segment_offsets)
+    if backend == "moss":
+        model, processor, device, dtype = load_moss_model()
+        for i, seg in enumerate(segments):
+            seg_file = resolve_seg_path(seg["file"], output_dir)
+            seg_offset = seg.get("offset", 0)
+            segment_offsets.append(seg_offset)
+            print(f"\n--- 段 {i+1}/{len(segments)}: {os.path.basename(seg_file)} (偏移 {seg_offset}s) ---")
+            audio_file, is_temp = ensure_audio(seg_file, output_dir)
+            try:
+                raw, asr_segments = transcribe_moss(model, processor, device, dtype, audio_file, args.max_new_tokens)
+            finally:
+                if is_temp:
+                    try:
+                        os.remove(audio_file)
+                    except OSError:
+                        pass
+            if not asr_segments:
+                print("  ⚠️ 本段无转录结果，跳过")
+                all_aligned.append([])
+                continue
+            # MOSS 返回的 start/end 为该段内相对时间，由 merge_aligned_segments 加段偏移
+            aligned = [{"speaker": s.get("speaker", "SPEAKER_00"), "text": s["text"],
+                        "start": s["start"], "end": s["end"]} for s in asr_segments]
+            all_aligned.append(aligned)
+            for item in aligned[:5]:
+                print(f"  [{item['start']:.1f}-{item['end']:.1f}] {item['speaker']}: {item['text']}")
+            if len(aligned) > 5:
+                print(f"  ... 共 {len(aligned)} 个片段")
+            _save_partial()
+        merged = merge_aligned_segments(all_aligned, segment_offsets)
+        merged = moss_assign_roles(merged)
+        speaker_method = "MOSS-Transcribe-Diarize 端到端（转录+说话人+时间戳一次生成）"
+    else:
+        asr_model, asr_key = load_funasr_model(model_key)
+        punc_model = None
+        if "preset_spk_num" in config:
+            preset_spk_num = config.get("preset_spk_num")
+            if preset_spk_num:
+                print(f"  强制说话人数（config 指定）: preset_spk_num={preset_spk_num}")
+            else:
+                print("  说话人数由 CAM++ 自动判定（config 设为空）")
+        else:
+            preset_spk_num = 2
+            print("  未指定，默认强制说话人数 preset_spk_num=2（街头采访/双人对话）")
+        for i, seg in enumerate(segments):
+            seg_file = resolve_seg_path(seg["file"], output_dir)
+            seg_offset = seg.get("offset", 0)
+            segment_offsets.append(seg_offset)
+            print(f"\n--- 段 {i+1}/{len(segments)}: {os.path.basename(seg_file)} (偏移 {seg_offset}s) ---")
+            audio_file, is_temp = ensure_audio(seg_file, output_dir)
+            try:
+                asr_segments = transcribe_funasr(asr_model, audio_file, asr_key, punc_model=punc_model, preset_spk_num=preset_spk_num)
+            finally:
+                if is_temp:
+                    try:
+                        os.remove(audio_file)
+                    except OSError:
+                        pass
+            if not asr_segments:
+                print("  ⚠️ 本段无转录结果，跳过")
+                all_aligned.append([])
+                continue
+            aligned = [{"speaker": s.get("speaker", "SPEAKER_00"), "text": s["text"], "start": s["start"], "end": s["end"]} for s in asr_segments]
+            # 时长兜底合并亚秒碎片（补 merge_speaker_jitter 的文本阈值盲区）
+            aligned = merge_short_segments(aligned)
+            all_aligned.append(aligned)
+            for item in aligned[:5]:
+                print(f"  [{item['start']:.1f}-{item['end']:.1f}] {item['speaker']}: {item['text']}")
+            if len(aligned) > 5:
+                print(f"  ... 共 {len(aligned)} 个片段")
+            _save_partial()
+        merged = merge_aligned_segments(all_aligned, segment_offsets)
+        speaker_method = "CAM++ 说话人嵌入（FunASR spk_model，按声纹自动聚类）"
+
     print(f"\n合并完成: 共 {len(merged)} 个片段")
 
-    # 生成结构化转录数据（JSON，无 Markdown；供 Step 3.5 处理与 build_docx 直接生成 .docx）
     data = generate_transcript_json(
-        merged,
-        doc_title,
-        source_file,
-        model_cfg["name"],
-        frame_path,
-        config.get("input_type", "video"),
+        merged, doc_title, source_file, model_cfg["name"],
+        frame_path, config.get("input_type", "video"),
+        speaker_method=speaker_method,
     )
     json_path = os.path.join(output_dir, f"{doc_title}_transcript.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     print(f"\n✅ 结构化转录数据保存（无 Markdown，将直接转为 .docx）: {json_path}")
 
-    # 统计
     speaker_counts = {}
     for item in merged:
         speaker_counts[item["speaker"]] = speaker_counts.get(item["speaker"], 0) + 1
     print(f"\n说话人片段分布: {speaker_counts}")
 
     print(f"\n🎉 本地转录完成！（模型: {model_cfg['name']}）")
-    print("请继续执行 Step 3.5 LLM 说话人识别（读取 raw_text，保留时间码）。")
+    print("请继续执行 Step 3.5 说话人角色命名 / Step 3.6 摘要（MOSS 已自动归并采访者/受访者）。")
     return json_path
 
 

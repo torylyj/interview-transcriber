@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org)
 [![中文转录](https://img.shields.io/badge/中文转录-Qwen3--ASR--Flash-rightgreen)](https://help.aliyun.com/zh/model-studio/)
 [![本地模型](https://img.shields.io/badge/本地模型-Paraformer-large%20%7C%20SenseVoice-orange)](https://modelscope.cn)
-[![Agents](https://img.shields.io/badge/Agent-WorkBuddy%20%7C%20Claude%20Code%20%7C%20Codex-purple)](https://github.com)
+[![Agents](https://img.shields.io/badge/Agent-WorkBuddy%20%7C%20Codex-purple)](https://github.com)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
 给 Agent 一段音视频，它会自动跑完 **预处理 → 转录 → 说话人识别 → 摘要与人物信息 → 输出文档**，最后还会问你「要把文档发到哪里」。你只需要在中间选一下转录方式。
@@ -212,12 +212,13 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | v1.2.6 | 2026-07-10 | 最终交付改为 **Word(.docx)**；新增 Step 3.8 |
 | v1.2.5 | 2026-07-10 | 新增 Step 3.7：文档生成后自检、适度精简口语语气词 |
 | v1.2.4 | 2026-07-10 | 切段决策改为模型按能力自动处理，不再询问用户 |
+| v1.2.4 | 2026-08-04 | 安全与合规修复：Markdown 导出动态内容转义（防链接/HTML/表格/公式注入）；ffmpeg 下载恢复 TLS 证书校验；API Key 统一从 `DASHSCOPE_API_KEY` 环境变量读取；移除平台命名；GBK 控制台 emoji 打印降级 |
 | v1.2.3 | 2026-07-10 | 支持音频输入（跳过转 MP3、无静帧）；切段决策移至选完转录方式后的 Step 2.6 |
 | v1.2.2 | 2026-07-10 | 美化 README（hero 标题 + 徽章 + 目录 + 工作流图修正），文档预览同步最新输出格式 |
 | v1.2.1 | 2026-07-10 | 新增 Step 6：全流程完成后主动询问用户交付位置 |
 | v1.2.0 | 2026-07-10 | 修正本地转录前置条件说明（Paraformer/SenseVoice 无需 HuggingFace Token） |
 | v1.1.5 | 2026-07-09 | 新增 Step 3.6：LLM 生成内容摘要与人物信息，置于文档正文最前面 |
-| v1.1.4 | 2026-07-09 | 适配多种 AI Agent（Claude Code、Codex 等）；统一使用"采访"表述 |
+| v1.1.4 | 2026-07-09 | 适配多种 AI Agent（Codex 等）；统一使用"采访"表述 |
 | v1.1.3 | 2026-07-09 | 新增对话时间码：每轮对话标注 [MM:SS]（本地为句级插值估算，段落边界精确） |
 | v1.1.2 | 2026-07-09 | 新增 Step 2.5：转录前询问用户选择转录方式 |
 | v1.1.1 | 2026-07-09 | 本地转录新增多模型支持：SenseVoice / Paraformer（魔搭社区）+ faster-whisper large-v3，替代原 faster-whisper medium |

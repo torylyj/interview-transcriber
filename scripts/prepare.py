@@ -83,6 +83,80 @@ def to_mp3(src, dst):
     ])[0]
 
 
+def to_wav(src, dst):
+    """提取/重采样为 16k 单声道 WAV（pcm_s16le，免有损编码、比 MP3 快）。"""
+    if os.path.exists(dst):
+        print(f"  ✓ 已存在，跳过提取：{dst}")
+        return 0
+    return run([
+        "ffmpeg", "-y", "-i", src,
+        "-vn", "-acodec", "pcm_s16le",
+        "-ar", "16000", "-ac", "1", dst,
+    ])[0]
+
+
+# MOSS 端到端模型整段吃长音频会 OOM（实测 26 分钟在 16GB 显存爆掉），
+# 且 12 分钟段在 16GB 卡上吃满显存（~13.7GB）会触发 CUDA 死锁（8/5 实测两次挂死）。
+# 故：阈值 15 分钟以内不切段；超过则按 8 分钟/段切（8/5 验证：8min 段显存 ~10.3GB，稳定且更快）。
+MOSS_SPLIT_THRESHOLD = 900    # 15 分钟以内不切段
+MOSS_SEG_SEC = 480            # 超阈值时按 8 分钟/段切（16GB 卡安全配置）
+
+
+def prepare_moss_segments(inputs, out_dir):
+    """MOSS 简化路径：视频/音频直接作为 segment（免转 MP3）。
+
+    - 单输入且总时长 ≤ 30min：segments 直接指向原始文件（绝对路径），
+      音轨提取由 transcribe_local.py 内部按需完成（一步隐式）。
+    - 单输入 > 30min：提取一次 16k WAV，按 20min/段切成 _segN.wav。
+    - 多输入（同一采访拆段）：各自提 WAV → concat → 按阈值决定是否切段。
+    返回 segments 列表。
+    """
+    if len(inputs) == 1:
+        src = os.path.abspath(inputs[0])
+        dur = ffprobe_duration(src) or 0
+        if dur <= MOSS_SPLIT_THRESHOLD:
+            print(f"  ✓ 时长 {dur/60:.1f} 分钟 ≤ 30 分钟，整段直入模型（免转 MP3/切段）")
+            return [{"file": src, "offset": 0}]
+        merged = os.path.join(out_dir, "输出.wav")
+        if to_wav(src, merged) != 0:
+            print("❌ 音轨提取失败。")
+            sys.exit(1)
+    else:
+        wavs = []
+        for f in inputs:
+            dst = os.path.join(out_dir, "_" + os.path.splitext(os.path.basename(f))[0] + ".wav")
+            if to_wav(f, dst) != 0:
+                print(f"❌ 音轨提取失败：{f}")
+                sys.exit(1)
+            wavs.append(dst)
+        merged = os.path.join(out_dir, "输出.wav")
+        list_file = os.path.join(out_dir, "_merge_list.txt")
+        with open(list_file, "w", encoding="utf-8") as f:
+            for w in wavs:
+                f.write(f"file '{w}'\n")
+        code = run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", list_file, "-c", "copy", merged])[0]
+        try:
+            os.remove(list_file)
+        except OSError:
+            pass
+        if code != 0:
+            print("❌ 合并失败。")
+            sys.exit(1)
+        dur = ffprobe_duration(merged) or 0
+        if dur <= MOSS_SPLIT_THRESHOLD:
+            return [{"file": os.path.basename(merged), "offset": 0}]
+    # 超长：按 20min/段切 WAV（pcm 切分，速度快）
+    n = max(1, int(dur // MOSS_SEG_SEC) + (1 if dur % MOSS_SEG_SEC else 0))
+    segs = []
+    for i in range(n):
+        seg_file = os.path.join(out_dir, f"_seg{i+1}.wav")
+        run(["ffmpeg", "-y", "-i", merged, "-ss", str(i * MOSS_SEG_SEC),
+             "-t", str(MOSS_SEG_SEC), "-c", "copy", seg_file])
+        segs.append({"file": os.path.basename(seg_file), "offset": i * MOSS_SEG_SEC})
+    return segs
+
+
 def extract_frame(skill_dir, inputs, out_jpg):
     """对视频输入抽最清晰静帧（多视频跨片段比选）。"""
     script = os.path.join(skill_dir, "scripts", "extract_frame.py")
@@ -166,9 +240,9 @@ def main():
     ap = argparse.ArgumentParser(description="音视频转文档前置配置生成器")
     ap.add_argument("inputs", nargs="+", help="视频/音频文件（同音视频可传多个）")
     ap.add_argument("--mode", default="local", choices=["local", "cloud"],
-                   help="local=Paraformer-large（默认,高精度）；cloud=Qwen3-ASR-Flash")
-    ap.add_argument("--model", default="paraformer", choices=["sensevoice", "paraformer"],
-                   help="本地模型（仅 local 模式生效；默认 paraformer 高精度，可选 sensevoice 轻量）")
+                   help="local=FunASR 本地（默认）；cloud=Qwen3-ASR-Flash")
+    ap.add_argument("--model", default="paraformer", choices=["paraformer", "sensevoice", "moss"],
+                   help="本地 ASR 模型（仅 local 模式生效；默认 paraformer 高精度，可选 sensevoice 轻量更快，或 moss 端到端可选）")
     ap.add_argument("--title", default=None, help="文档标题（默认从文件名推导）")
     ap.add_argument("--output-dir", default=None, help="输出目录（默认第一个文件所在目录）")
     a = ap.parse_args()
@@ -188,20 +262,28 @@ def main():
             sys.exit(1)
         (videos if is_video(f) else audios).append(f)
 
-    # 1) 各自转 MP3
-    mp3_list = []
-    for f in a.inputs:
-        dst = os.path.join(out_dir, os.path.splitext(os.path.basename(f))[0] + ".mp3")
-        if to_mp3(f, dst) != 0:
-            print(f"❌ 转码失败：{f}")
-            sys.exit(1)
-        mp3_list.append(dst)
+    use_moss = (a.mode == "local" and a.model == "moss")
 
-    # 2) 合并（多段同音视频）
-    merged = os.path.join(out_dir, "输出.mp3")
-    if concat_mp3(mp3_list, merged) != 0:
-        print("❌ 合并失败。")
-        sys.exit(1)
+    # 1)+2) 音频准备与切段
+    if use_moss:
+        # MOSS 简化路径：免转 MP3——短输入直接把原始文件写进 segments，
+        # 音轨提取由 transcribe_local.py 内部按需一步完成
+        print("  [MOSS 简化路径] 视频免转 MP3，直接进转录脚本")
+        segments = prepare_moss_segments(a.inputs, out_dir)
+    else:
+        # 传统路径（Paraformer/SenseVoice/云端）：转 MP3 → 合并 → 切段
+        mp3_list = []
+        for f in a.inputs:
+            dst = os.path.join(out_dir, os.path.splitext(os.path.basename(f))[0] + ".mp3")
+            if to_mp3(f, dst) != 0:
+                print(f"❌ 转码失败：{f}")
+                sys.exit(1)
+            mp3_list.append(dst)
+        merged = os.path.join(out_dir, "输出.mp3")
+        if concat_mp3(mp3_list, merged) != 0:
+            print("❌ 合并失败。")
+            sys.exit(1)
+        segments = decide_segments(merged, a.mode)
 
     # 3) 静帧（仅含视频时）
     frame_path = None
@@ -211,9 +293,8 @@ def main():
             print("  ⚠️ 静帧抽取失败，将跳过（音频模式）。")
             frame_path = None
 
-    # 4) 切段决策
+    # 4) 输入类型
     input_type = "video" if videos else "audio"
-    segments = decide_segments(merged, a.mode)
 
     # 5) 标题
     title = derive_title(a.inputs, a.title)
