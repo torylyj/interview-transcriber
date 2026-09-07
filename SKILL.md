@@ -109,11 +109,13 @@ agent_created: true
 
 **三档定义：**
 
-| 档位 | 引擎 | config 写法 | 特点 |
-|------|------|------|------|
-| **① 快速** | FunASR Paraformer-large + CAM++ | `mode:"local"`, `model:"paraformer"` | 中文高精度、速度最快、离线可用、无需 Key；说话人走声纹聚类，**必须接 LLM 语义校正（3.5B）** |
-| **② 精准** | MOSS-Transcribe-Diarize 0.9B 端到端 | `mode:"local"`, `model:"moss"` | 转录+说话人+时间戳一次生成，分离最稳、标点最自然；速度慢（约 1.5–2 倍实时），显存要求高 |
-| **③ 云端** | Qwen3-ASR-Flash | `mode:"cloud"` + api_key | 不吃本机算力、长音频 4 分钟/段；需 DashScope Key，说话人走 LLM 语义切分 |
+| 档位 | 引擎 | 模型大小 | config 写法 | 特点 |
+|------|------|------|------|------|
+| **① 快速** | FunASR Paraformer-large + CAM++ | Paraformer-large ~900MB + CAM++ ~30MB（首次联网下载，之后离线） | `mode:"local"`, `model:"paraformer"` | 中文高精度、速度最快、离线可用、无需 Key；说话人走声纹聚类，**必须接 LLM 语义校正（3.5B）**；标点/分段较弱，**推荐接 LLM 文本精修（3.56）** |
+| **② 精准** | MOSS-Transcribe-Diarize 0.9B 端到端 | 0.9B 模型 ~1.8GB + torch GPU 推理栈 ~2.7GB（首次联网下载） | `mode:"local"`, `model:"moss"` | 转录+说话人+时间戳一次生成，分离最稳、标点最自然；速度慢（约 1.5–2 倍实时），显存要求高（≥16GB） |
+| **③ 云端** | Qwen3-ASR-Flash | **无需本地模型** | `mode:"cloud"` + api_key | 不吃本机算力、长音频 4 分钟/段；需 DashScope Key，说话人走 LLM 语义切分 |
+
+> 文档「文档信息」中的转录工具一行会自动带上档位与模型大小标注（`build_docx.py` 的 `_tool_with_size`）。
 
 **推荐逻辑（先检测，再推荐）：**
 
@@ -208,6 +210,21 @@ python <skill_dir>/scripts/benchmark_wespeaker.py --source <音频> --start 600 
 - 同音字校对只改**字**，不改标点 / 段结构 / 说话人 / 时间码；
 - 短语气词（啊/嗯/哦）的误识别通常不是同音字错误（是删除冗余），应放到 Step 3.7 处理；
 - 数字/人名/专名错误 LLM 可能误判（如「林黛玉」不应改成「林戴玉」），必须人工复核 corrections 后再 --apply。
+
+### Step 3.56: 文本精修——标点修复 + 段落重排（快速档强烈推荐）
+
+快速档（Paraformer + ct-punc）的标点常错位（如「因。为」）或缺标点，长独白还会被按 ~160 字机械切段导致胡乱换行。用 `refine_paragraphs.py` 让 LLM 对 document.json 逐轮做：①标点恢复/归位 ②按语义重排自然段（续段时间码按字数占比插值）③轻度精简语气词；单轮长度校验失败自动回退原文，不丢内容。
+
+```bash
+python <skill_dir>/scripts/refine_paragraphs.py "<输出目录>/<标题>_document.json" \
+    --api-key $DASHSCOPE_API_KEY --in-place
+# --in-place 直接覆盖（自动备份 .bak）；不加则输出 <标题>_document.refined.json
+```
+
+- **适用**：快速档必做（效果提升最大）；精准档（MOSS）标点自然、分段合理，通常可跳过；云端档推荐。
+- **时机**：build_document.py 产出 document.json 之后、build_docx.py 之前（3.7 语气词精简已内置其中，无需重复做）。
+- **docx 格式约定**：每轮「角色（时间）」一行 + 内容另起一行；长独白续段也是时间码一行 + 内容另起一行（build_docx.py 已实现，勿改回同行拼接）。
+- ⚠️ 50 分钟音频约 9 批 LLM 调用（~10 分钟），后台跑并轮询日志。
 
 ### Step 3.6: 生成摘要与人物信息（必须执行！）
 

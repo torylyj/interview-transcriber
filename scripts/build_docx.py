@@ -183,6 +183,20 @@ def add_image(doc, img_path, base_dir, width=Inches(280 / 96.0)):
         print(f"  ⚠️ 插入图片失败: {e2}")
 
 
+def _tool_with_size(tool: str) -> str:
+    """转录工具名追加档位与模型大小标注（快速/精准/云端）。"""
+    t = (tool or "").lower()
+    if "moss" in t:
+        return f"{tool}（精准档 · 0.9B 模型 ~1.8GB + torch GPU 推理栈 ~2.7GB）"
+    if "sensevoice" in t:
+        return f"{tool}（快速档 · 轻量模型 ~500MB）"
+    if "paraformer" in t or "funasr" in t:
+        return f"{tool}（快速档 · Paraformer-large ~900MB + CAM++ ~30MB）"
+    if "qwen3-asr" in t or "qwen" in t:
+        return f"{tool}（云端 · 无需本地模型）"
+    return tool or ""
+
+
 def build(doc, data, base_dir):
     # 标题
     doc.add_heading(data.get("title", "转录文档"), level=0)
@@ -261,7 +275,7 @@ def build(doc, data, base_dir):
     info_lines = [
         f"源文件：{data.get('source_file', '')}",
         f"输入类型：{data.get('input_type', '')}",
-        f"转录工具：{data.get('transcription_tool', '')}",
+        f"转录工具：{_tool_with_size(data.get('transcription_tool', ''))}",
         f"说话人识别：{data.get('speaker_method', 'CAM++ 说话人嵌入（本地）/ LLM 语义切分（云端）')}",
         f"转录日期：{data.get('date', '')}",
     ]
@@ -288,9 +302,10 @@ def build(doc, data, base_dir):
         doc.add_paragraph(f"{speaker}（{ts_disp}）")
         # 第 2 行：内容
         doc.add_paragraph(text)
-        # 续段（长独白自动分段）以时间码起头，逐段换行
+        # 续段（长独白自动分段）：时间码一行 + 内容另起一行
         for para in paras[1:]:
-            doc.add_paragraph(f"{para['ts'].strip('[]')} {para['text']}")
+            doc.add_paragraph(para["ts"].strip("[]"))
+            doc.add_paragraph(para["text"])
         # 轮间空一行
         doc.add_paragraph("")
 
@@ -338,7 +353,7 @@ def export_markdown(data, md_path, skip_frame=False):
     lines += [
         f"> 源文件：{_md_escape(data.get('source_file', ''))}",
         f"> 输入类型：{_md_escape(data.get('input_type', ''))}",
-        f"> 转录工具：{_md_escape(data.get('transcription_tool', ''))}",
+        f"> 转录工具：{_md_escape(_tool_with_size(data.get('transcription_tool', '')))}",
         f"> 说话人识别：{_md_escape(data.get('speaker_method', 'CAM++ 说话人嵌入（本地）/ LLM 语义切分（云端）'))}",
         f"> 转录日期：{_md_escape(data.get('date', ''))}",
         "",
@@ -356,8 +371,10 @@ def export_markdown(data, md_path, skip_frame=False):
         # 第 1 行：角色（时间）——时间码去方括号；第 2 行：内容
         lines.append(f"{speaker}（{ts_disp}）")
         lines.append(text)
+        # 续段：时间码一行 + 内容另起一行
         for para in paras[1:]:
-            lines.append(f"{para['ts'].strip('[]')} {_md_escape(para['text'])}")
+            lines.append(para["ts"].strip("[]"))
+            lines.append(_md_escape(para["text"]))
         # 轮间空行：用全角空格占位，避免钉钉在线文档吞掉空段落
         lines.append("\u3000")
 
