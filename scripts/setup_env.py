@@ -45,7 +45,7 @@ PYPI_MIRRORS = [
 # 默认安装：覆盖云端 + 本地（MOSS 端到端 / SenseVoice / Paraformer）两种模式的最小集合
 PY_DEPS = [
     "funasr", "modelscope",          # 本地转录（Paraformer/SenseVoice，模型从魔搭社区国内直连）
-    "transformers",                   # MOSS 端到端推理（默认本地模型）
+    "transformers",                   # MOSS 端到端推理（精准档模型）
     "python-docx", "pillow",          # 生成 .docx + 静帧清晰度
     "dashscope",                       # 云端转录 + 说话人/摘要 LLM
 ]
@@ -54,7 +54,7 @@ PY_DEPS = [
 #   "pyannote.audio"  # 声纹分离，需 HF Token；已废弃——本地说话人改由 CAM++ 嵌入
 OPTIONAL_DEPS = ["faster-whisper", "pyannote.audio"]
 
-# MOSS 端到端推理包（默认本地模型的推理代码，git 仓库，pip 直接装）
+# MOSS 端到端推理包（精准档模型的推理代码，git 仓库，pip 直接装）
 MOSS_REPO = "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize.git"
 
 # 包名 -> import 模块名（用于「已装则跳过」真实探测，避免重复下载）
@@ -146,7 +146,7 @@ def install_moss_package() -> bool:
     cmd = [sys.executable, "-m", "pip", "install", "-e", MOSS_REPO, "--no-deps"]
     try:
         subprocess.run(cmd, check=True, capture_output=True, timeout=600)
-        log("  ✅ moss_transcribe_diarize 安装成功（默认本地模型 MOSS 可用）")
+        log("  ✅ moss_transcribe_diarize 安装成功（精准档模型 MOSS 可用）")
         return True
     except Exception as e:
         log(f"  ⚠️ moss_transcribe_diarize 安装失败（不影响 Paraformer/SenseVoice/云端）: {e}")
@@ -173,8 +173,8 @@ def install_torch(gpu: bool, force: bool = False) -> bool:
     """安装 torch + torchaudio：有 GPU 装 CUDA 版（cu128），否则 CPU 版。
 
     已装且版本匹配时自动跳过（尤其避免重复下载 2.7GB CUDA 版）。
-    无论哪种，本地转录引擎（SenseVoice/Paraformer）都仍是默认推理方式，
-    GPU 只是加速，不改变「默认本地模型」的策略。
+    无论哪种，本地两档（快速 FunASR / 精准 MOSS）都可离线推理，
+    GPU 只是加速，档位选择见 SKILL.md Step 2.5。
     """
     # ── 已装检测：避免重复下载 ──
     if not force:
@@ -221,7 +221,7 @@ def which(prog):
 VERIFY_PACKAGES = [
     ("funasr", "funasr（本地 ASR / Paraformer / SenseVoice）", "funasr"),
     ("modelscope", "modelscope（模型下载）", "modelscope"),
-    ("transformers", "transformers（MOSS 端到端推理，默认本地模型）", "transformers"),
+    ("transformers", "transformers（MOSS 端到端推理，精准档模型）", "transformers"),
     ("docx", "python-docx（生成 .docx）", "python-docx"),
     ("PIL", "pillow（静帧清晰度）", "pillow"),
     ("dashscope", "dashscope（云端转录 + 说话人 LLM）", "dashscope"),

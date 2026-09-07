@@ -4,11 +4,11 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org)
 [![中文转录](https://img.shields.io/badge/中文转录-Qwen3--ASR--Flash-rightgreen)](https://help.aliyun.com/zh/model-studio/)
-[![本地模型](https://img.shields.io/badge/本地模型-Paraformer-large%20%7C%20SenseVoice-orange)](https://modelscope.cn)
+[![本地模型](https://img.shields.io/badge/本地模型-FunASR%20%7C%20MOSS%20%7C%20SenseVoice-orange)](https://modelscope.cn)
 [![Agents](https://img.shields.io/badge/Agent-WorkBuddy%20%7C%20Codex-purple)](https://github.com)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
-给 Agent 一段音视频，它会自动跑完 **预处理 → 转录 → 说话人识别 → 摘要与人物信息 → 输出文档**，最后还会问你「要把文档发到哪里」。你只需要在中间选一下转录方式。
+给 Agent 一段音视频，它会自动跑完 **预处理 → 转录 → 说话人识别 → 摘要与人物信息 → 输出文档**，最后还会问你「要把文档发到哪里」。开始转录前 Agent 会检测你的显卡配置，从**快速 / 精准 / 云端**三档模型里推荐一个，你确认或改选即可。
 
 ## 📑 目录
 
@@ -30,10 +30,11 @@
 |------|------|
 | 🎞️ 输入预处理 | 视频：提取**最清晰静帧** + 转 MP3；音频：直接用作音频（跳过转 MP3、无静帧） |
 | 🧩 多段合并 | 一段音视频拆成多个文件？明确告知后自动合并转录为一篇文档 |
-| ☁️ 云端转录 | Qwen3-ASR-Flash（可选方式，需 DashScope API Key） |
-| 💻 本地转录 | **默认** Paraformer-large（魔搭社区，中文最高精度，离线可用）/ 可选 SenseVoice（轻量·多语言·情感） |
+| ⚡ 快速转录（推荐档之一） | FunASR Paraformer-large（魔搭社区，中文高精度，离线可用，速度最快）/ 可选 SenseVoice（轻量·多语言·情感） |
+| 🎯 精准转录（推荐档之一） | MOSS-Transcribe-Diarize 0.9B 端到端：转录+说话人+时间戳一次生成，说话人分离最稳、标点自然（建议 ≥16GB 显存） |
+| ☁️ 云端转录 | Qwen3-ASR-Flash（可选方式，需 DashScope API Key，不吃本机算力） |
 | ⏱️ 对话时间码 | 每轮对话标注 `[MM:SS]`，精准定位视频位置 |
-| 🗣️ 说话人识别 | Paraformer-large + CAM++ 在**模型内**完成说话人分离（按声纹自动聚类，无需 LLM），自动区分说话人（支持多说话人）；统一中性命名为 说话人1/2/3……（不做采访者/受访人角色判定） |
+| 🗣️ 说话人识别 | 快速档：Paraformer-large + CAM++ **模型内**声纹聚类（无需 LLM 切分）+ LLM 语义校正兜底；精准档：MOSS 端到端一次生成；自动区分说话人（支持多说话人）；统一中性命名为 说话人1/2/3……（不做采访者/受访人角色判定） |
 | 📝 内容摘要 | LLM 生成 3–5 句话概括音视频核心内容 |
 | 👤 人物信息 | LLM 提取人物信息；**未提及则整段省略**，多人时每人一个独立表格 |
 | 📤 多平台分发 | 本地 Word(.docx) / 钉钉文档 / 飞书 / Notion / 其他平台 |
@@ -59,7 +60,7 @@ https://github.com/torylyj/interview-transcriber
 - **ffmpeg** — 视频处理。Windows 缺失时 Agent 会自动从**国内镜像**下载静态构建；也可手动用 choco / winget / brew 安装。
 - **Python 3.10+** — 运行转录脚本。
 - **DashScope API Key** — 仅**云端转录**需要（[获取地址](https://bailian.console.aliyun.com/?tab=model#/api-key)）；本地转录完全不需要。
-- **无需 HuggingFace Token** — 本地说话人由 CAM++ 模型内分离（魔搭直连），模型仅 Paraformer-large / SenseVoice；已移出 faster-whisper / pyannote。
+- **无需 HuggingFace Token** — 本地说话人由 CAM++（快速档）或 MOSS（精准档）模型内分离（魔搭直连）；已移出 faster-whisper / pyannote。
 
 > 💡 **安装是自动的**：把本技能交给 Agent 后，首次使用它会自动通过**国内镜像**装好依赖与 ffmpeg（如需手动触发：`python scripts/setup_env.py`）。你通常不需要手动装任何东西。
 
@@ -79,7 +80,7 @@ https://github.com/torylyj/interview-transcriber
 帮我转录这段采访录音：D:/audios/interview_001.m4a
 ```
 
-Agent 收到后会自动执行完整流程，**默认使用本地转录（Paraformer-large，中文高精度、离线可用、无需任何配置）**，不会打断你提问。
+Agent 收到后会先检测你的显卡配置（nvidia-smi），**推荐「快速 / 精准 / 云端」三档之一**：显存 ≥16GB 推荐精准（MOSS 分离最稳）、8–12GB 推荐快速（FunASR，GPU 加速）、无 NVIDIA 显卡推荐云端（有 Key 时）。你确认后它自动执行完整流程，全程可随时说「换快速/换精准/换云端」切换。
 
 - 如果想用**云端转录**，随时告诉 Agent「用云端转录」（需 DashScope API Key），它会切换为 Qwen3-ASR-Flash。
 - 如果**一个采访被拆成了多段视频/音频**，只需在开头说明「这 N 个文件是同一段采访」，Agent 会自动合并转录成一篇文档。
@@ -104,7 +105,7 @@ Agent 收到后会自动执行完整流程，**默认使用本地转录（Parafo
 export DASHSCOPE_API_KEY="sk-your-key-here"
 ```
 
-> 💡 **提示**：默认本地转录（Paraformer-large，中文高精度、离线可用、无需配置）；如想用云端也可切 Qwen3-ASR-Flash（需 DashScope API Key）。
+> 💡 **提示**：三档模型按本机配置推荐——快速（FunASR，离线、无需配置）、精准（MOSS，分离最稳，建议 16GB 显存）、云端（Qwen3-ASR-Flash，需 DashScope API Key）。Agent 会先给出推荐，你三选一即可。
 
 ---
 
@@ -123,7 +124,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 以一段 **20 分钟音视频** 为例（本机实测环境：NVIDIA RTX 4070 Ti SUPER + 模型已缓存）：
 
-| 环节 | 本地模式（默认，GPU） | 云端模式（Qwen3-ASR-Flash） |
+| 环节 | 本地快速档（FunASR，GPU） | 云端模式（Qwen3-ASR-Flash） |
 |------|------|------|
 | 视频提取音频（ffmpeg） | 20–40 秒 | 20–40 秒 |
 | 模型加载（每次新进程） | 10–30 秒 | — |
@@ -134,15 +135,17 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | **本机首次** | **≈ 4–8 分钟** | **≈ 4–8 分钟** |
 | **本机后续** | **≈ 4–8 分钟** | **≈ 4–8 分钟** |
 
+> 🎯 **精准档（MOSS）速度**：端到端自回归，约 1.5–2 倍实时（20 分钟音频约 30–40 分钟），换取最稳的说话人分离与标点；追时效请用快速档或云端。
+
 - **本机「首次≈后续」**：因为模型已缓存在本地，首次不再有下载开销。技能里的「首次转录会下载模型」提醒只对**全新机器第一次跑**才生效。
-- **全新机器首次**（换电脑）：本地模式额外加 ①pip 装依赖 ~1–2 分钟（国内镜像）+ ②Paraformer-large 模型下载 ~1–5 分钟（魔搭国内直连，约 800MB），即首次 **6–12 分钟**；云端模式永远不需要下载模型。
+- **全新机器首次**（换电脑）：本地模式额外加 ①pip 装依赖 ~1–2 分钟（国内镜像）+ ②模型下载（快速档 Paraformer-large ~800MB；精准档 MOSS ~1.8GB + torch 推理栈，GPU 版约 2.7GB，魔搭国内直连），即首次 **6–15 分钟**；云端模式永远不需要下载模型。
 - **本地与云端耗时相当**（都约 4–8 分钟）；本地完全离线、无需 Key，云端需联网与 Key，两种方式都能满足常规转录需求。
 
 ---
 
 ## 💻 最低硬件配置
 
-纯本地转录对硬件要求不高（默认 Paraformer-large 模型 ~800MB，SenseVoice 轻量 ~500MB），分两档：
+本地转录对硬件要求不高（快速档 Paraformer-large 模型 ~800MB，SenseVoice 轻量 ~500MB），分两档；**精准档（MOSS）另需 ≥16GB 显存**：
 
 ### 纯 CPU 模式（无显卡也行）
 
@@ -161,14 +164,15 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 |----|---------|------|
 | GPU | NVIDIA 显卡，≥4GB 显存，支持 CUDA | 入门级 GTX 1650 4GB / RTX 3050 4GB 即可 |
 | 显存占用 | Paraformer-large 推理约 3–4GB | 4GB 显存绰绰有余（SenseVoice 轻量仅 1–2GB） |
+| 精准档（MOSS）要求 | **建议 ≥16GB 显存** | 8 分钟/段实测峰值 ~10.3GB；8–12GB 显存请用快速档 |
 | 驱动 | 支持 CUDA 12.x | 需对应 NVIDIA 驱动版本 |
-| **20 分钟视频耗时** | **约 2–4 分钟** | 本机 RTX 4070 Ti 16GB 即此档 |
+| **20 分钟视频耗时** | **约 2–4 分钟** | 本机 RTX 4070 Ti SUPER 16GB 即此档（精准档 MOSS 约 30–40 分钟） |
 
 > ⚠️ **硬性约束：**
 > 1. 必须是 **NVIDIA 显卡** 才能用已装的 CUDA 版 torch；AMD / Intel 核显无法用 CUDA，只能退回 CPU。
-> 2. **本地说话人由 CAM++ 模型内分离**：Paraformer-large 加载 `spk_model="cam++"`，单次 `generate()` 即返回每句说话人 id（按声纹自动聚类，无需额外 Key）；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分。
+> 2. **本地说话人分离**：快速档由 Paraformer-large 加载 `spk_model="cam++"`，单次 `generate()` 即返回每句说话人 id（按声纹自动聚类，无需额外 Key），再经 LLM 语义校正兜底；精准档（MOSS）端到端一次生成；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分。
 > 3. **ffmpeg 必需**（视频抽静帧、提取音频），独立下载项，不算在 Python 环境里。
-> 4. **首次需联网**：下载模型（默认 Paraformer-large ~800MB，魔搭国内直连）+ pip 依赖；之后可完全离线跑 ASR。
+> 4. **首次需联网**：下载模型（快速档 Paraformer-large ~800MB；精准档 MOSS ~1.8GB，魔搭国内直连）+ pip 依赖；之后可完全离线跑 ASR。
 
 ---
 
@@ -177,7 +181,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 - **文档命名规范**：`拍摄时间+人物简介`，如 `26-0509 车辆学院直博生`（人物简介 ≤10 字）。
 - **多段音视频合并**：必须**明确告知哪几个文件属于同一段音视频**，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。
 - **智能静帧**：由 `scripts/extract_frame.py` 将视频**五等分、各抽 1 帧**并按清晰度比选最清晰的一张（输入定位，不软解整段视频，避免黑屏/字幕遮挡帧）。
-- **默认本地转录**：默认 Paraformer-large 离线可用、无需配置；仅当用户明确要求用云端、SenseVoice 或提供 DashScope API Key 时才切。
+- **三档模型选择**：快速（FunASR）/ 精准（MOSS）/ 云端（Qwen3-ASR-Flash）。Agent 先检测显卡配置推荐一档，你三选一；未表态则按推荐档执行，随时可切。
 - **时间码精度**：本地 Paraformer-VAD 为真实句级时间码；SenseVoice 为句级插值估算（段落边界精确，段内为估算值）；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
 - **Windows 路径**：使用正斜杠 `/`，避免中文路径传给 API。
 - **长文本处理**：LLM 单次输入建议不超过 8000 字符，超长需分段。
@@ -189,6 +193,8 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v1.12.1 | 2026-09-07 | **三档模型选择（快速/精准/云端）+ 文档全面对齐**：Step 2.5 升级为「模型选择」环节——① 快速 = FunASR Paraformer+CAM++（速度最快、离线、无需 Key）；② 精准 = MOSS 端到端（分离最稳、标点自然）；③ 云端 = Qwen3-ASR-Flash（需 Key）。开始前 `nvidia-smi` 检测显存自动推荐：≥16GB → 精准、8–12GB → 快速、无 N 卡 → 云端/CPU 快速；用户三选一、随时可切。同步清除 SKILL.md/README 中「默认 Paraformer / MOSS 仅回退」与「默认 MOSS」并存的旧文案，切段/说话人/硬件/性能章节全部按三档改写 |
+| v1.12.0 | 2026-09-07 | **MOSS 端到端 + 说话人 LLM 语义校正 + 安全加固**：① `prepare.py` MOSS 分片由 12 分钟收紧到 **8 分钟/段**（`MOSS_SEG_SEC=480`，16GB 显存实测峰值 ~10.3GB；12 分钟段曾 CUDA 死锁）；② 新增 `correct_speakers.py`——Qwen-Plus 按「问答语义+占比+连续性+短回应归并」校正说话人角色，并一并产出 summary/summary_sections/person_info（`build_document.py --apply` 直接消费）；③ `build_docx.py` 表格单元格 `_md_escape` 先折叠空白再判公式前缀（修 md 导出注入 bypass），新增 `test_md_escape.py` 20 条回归用例；④ 新增 WeSpeaker 重贴标/benchmark 等辅助脚本与 `run_win_transcribe.ps1` |
 | v1.11.0 | 2026-07-20 | **新增 Step 3.55 同音字校对（LLM 后处理，按上下文批量替换）**：中文 ASR 模型按读音识别，常把同音字搞混（在↔再、做↔作、的↔得↔地、了↔啦↔咯、记↔纪↔计、系↔戏↔细、辩↔辨↔辫、帐↔账、复↔覆、像↔象、报↔抱，以及数字/人名/专名的同音替换）。① 新增 `scripts/correct_homophones.py` —— 方式 A 打印 prompt 让 Agent 自己跑 LLM、方式 B `--call-qwen` 直接调 qwen-plus；按 `context` 精确替换 `segments[].text`（无 context 或 context 不匹配的 corrections 会跳过并在 stderr 提示「可能 LLM 幻觉」，避免误伤）。② `build_document.py` 自动检测 `<标题>_transcript.corrected.json` 并优先消费（仅替换 text，保留 speaker/start/end/metadata）；同时 `--apply` 内联支持 `corrections.json` 里的 `homophone_corrections` 字段，一步产出最终 document.json。③ SKILL.md 加 Step 3.55；`prompts.md` 新增同音字校对 prompt 模板（与 `correct_homophones.py` 同步维护）；`test_interview/test_homophones.py` 端到端 PASS（4 条 corrections 真实应用 3 处 + 跳过 1 处 context 不匹配）。 |
 | v1.10.1 | 2026-07-20 | **说话人配色收敛（去掉大色块 + 去掉背景高亮，改用色相差异大的彩色圆点）**：v1.10.0 用 🟥🟧🟨🟩🟦🟪🟫⬛ 大色方块 + WD_COLOR_INDEX 背景高亮三重冗余，但前两位说话人会拿到 🟥红/🟧橙，**色相太接近难分**（用户反馈）。收敛为单一来源的彩色圆点 emoji（🔴红 → 🔵蓝 → 🟢绿 → 🟡黄 → 🟣紫 → ⚫黑 → 🟤棕 → ⚪白 → 🟠橙 → 🔘灰 循环），色相尽量分散；默认说话人1=🔴红、说话人2=🔵蓝，相邻说话人配色差距大。`build_docx.py` 删去 `_SPEAKER_HIGHLIGHT` / `_speaker_visual` / `_add_label_runs`，还原回简单的 `_speaker_emoji` + `add_inline_runs`，更轻量 |
 | v1.10.0 | 2026-07-20 | **说话人区分强化（三重冗余）+ 内容摘要分板块 + 文档信息精简**：① 每个说话人在每轮首次说话位置用**彩色大色块**（🟥🟧🟨🟩🟦🟪🟫⬛ 循环）+ **说话人名加粗** + **Word 背景高亮（WD_COLOR_INDEX 标准 16 色循环）**三重标识，同一说话人跨轮次保持同一颜色/色块，肉眼/打印/复制粘贴都能一眼分清；② 内容摘要新增 `summary_sections` 字段——除原总结性摘要外，按主题拆成 2+ 个 H2 板块（每个板块 = `{title, content}`），LLM prompt 与 `assemble_document`/`--apply` schema 同步；③ 文档信息板块精简：移除「时间码精度」「摘要与人物信息」两行，仅保留源文件/输入类型/转录工具/说话人识别/转录日期 5 行。`output_schema.md` / `prompts.md` / `test_build_docx.py` 同步 |

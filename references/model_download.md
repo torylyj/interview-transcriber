@@ -10,7 +10,7 @@
 | pyannote.audio（声纹分离） | HuggingFace | 是 | — | ~100MB | **已废弃（说话人分离改由 CAM++ 嵌入，免 Token）** |
 
 - SenseVoice / Paraformer 从魔搭社区下载，**国内直连、无需 HuggingFace、无需 API Key**，离线可用。
-- faster-whisper / pyannote.audio **已移出默认流程**（不推荐、可省）：本地说话人分离改由 **CAM++ 说话人嵌入**（`spk_model`，随 FunASR 自动从魔搭下载、免 Token），无需 pyannote 声纹模型；云端仍走 LLM 语义切分。本地默认 Paraformer-large 中文精度最高（尤其嘈杂/口音场景），SenseVoice 作为更快/多语言/情感的可选轻量项，无需 ~3GB 的 whisper。
+- faster-whisper / pyannote.audio **已移出默认流程**（不推荐、可省）：本地快速档说话人分离改由 **CAM++ 说话人嵌入**（`spk_model`，随 FunASR 自动从魔搭下载、免 Token），无需 pyannote 声纹模型；云端仍走 LLM 语义切分。三档模型（SKILL.md Step 2.5）：快速 = Paraformer-large（中文精度最高，尤其嘈杂/口音场景，SenseVoice 为更快/多语言/情感的可选轻量项）；精准 = MOSS-Transcribe-Diarize 0.9B 端到端（分离最稳，~1.8GB，建议 ≥16GB 显存）；云端 = Qwen3-ASR-Flash（需 API Key）。
 - **ffmpeg 安装**：Windows 缺失时运行 `python scripts/setup_env.py` 自动从 **npmmirror 二进制镜像**下载静态构建（含 ffprobe），无需访问 GitHub releases（国内常下载不动）。
 
 ## 依赖安装（务必走国内镜像）

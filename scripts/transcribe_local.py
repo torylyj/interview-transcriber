@@ -14,7 +14,7 @@
 LLM 逐句语义切分或 pyannote.audio。模型只给「谁在何时说」，说话人中性命名
 （说话人1/2/3……）由轻量步骤完成（见 build_document.py）。
 
-用法: python transcribe_local.py --config config.json [--model sensevoice|paraformer]
+用法: python transcribe_local.py --config config.json [--model sensevoice|paraformer|moss]
 配置示例见 SKILL.md Step 2
 """
 
@@ -567,7 +567,7 @@ def main():
         "--model",
         default=None,
         choices=["paraformer", "sensevoice", "moss"],
-        help="转录模型: paraformer (默认,高精度) | sensevoice (轻量更快) | moss (端到端可选)",
+        help="转录模型: paraformer=快速档(默认) | moss=精准档端到端 | sensevoice=轻量更快",
     )
     parser.add_argument("--max-new-tokens", type=int, default=32768,
                         help="MOSS 推理最大新 token 数（长音频可加大）")
@@ -583,7 +583,7 @@ def main():
     frame_path = config.get("frame_path")
     segments = config.get("segments", [])
 
-    # 确定模型（默认 FunASR Paraformer 高精度；moss 端到端为可选回退）
+    # 确定模型（paraformer=快速档默认；moss=精准档端到端，见 SKILL.md Step 2.5）
     model_key = args.model or config.get("model", "paraformer")
     if model_key not in MODEL_CONFIGS:
         print(f"错误: 未知模型 '{model_key}'，可选: {', '.join(MODEL_CONFIGS.keys())}")

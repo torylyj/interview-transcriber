@@ -242,7 +242,7 @@ def main():
     ap.add_argument("--mode", default="local", choices=["local", "cloud"],
                    help="local=FunASR 本地（默认）；cloud=Qwen3-ASR-Flash")
     ap.add_argument("--model", default="paraformer", choices=["paraformer", "sensevoice", "moss"],
-                   help="本地 ASR 模型（仅 local 模式生效；默认 paraformer 高精度，可选 sensevoice 轻量更快，或 moss 端到端可选）")
+                   help="本地 ASR 模型（仅 local 模式生效）：paraformer=快速档（默认）| moss=精准档端到端 | sensevoice=极速轻量；档位选择见 SKILL.md Step 2.5")
     ap.add_argument("--title", default=None, help="文档标题（默认从文件名推导）")
     ap.add_argument("--output-dir", default=None, help="输出目录（默认第一个文件所在目录）")
     a = ap.parse_args()
