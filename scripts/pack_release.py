@@ -95,10 +95,11 @@ def main():
     if args.zip:
         zip_path = out_dir.parent / (root.name + "_release.zip")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for f in out_dir.rglob("*"):
+            for f in sorted(out_dir.rglob("*")):
                 if f.is_file():
-                    zf.write(f, f.relative_to(out_dir.parent))
-        print(f"✅ zip 包 → {zip_path}")
+                    # 关键：SKILL.md 必须在 zip 根目录（SkillHub 校验要求），不能包一层目录
+                    zf.write(f, f.relative_to(out_dir))
+        print(f"✅ zip 包（SKILL.md 位于根目录）→ {zip_path}")
 
 
 if __name__ == "__main__":
