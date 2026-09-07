@@ -128,7 +128,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 |------|------|------|
 | 视频提取音频（ffmpeg） | 20–40 秒 | 20–40 秒 |
 | 模型加载（每次新进程） | 10–30 秒 | — |
-| ASR 转录 | **2–4 分钟**（GPU 加速，较 SenseVoice 慢约一倍） | **2–4 分钟**（分 5 段上传+服务端） |
+| ASR 转录 | **<1 分钟**（纯 CPU ~33 倍实时，无需 GPU） | **2–4 分钟**（分 5 段上传+服务端） |
 | 说话人命名+摘要+自检（LLM/轻量） | 1–3 分钟 | 1–3 分钟 |
 | 抽最清晰静帧 | 10–20 秒 | 10–20 秒 |
 | 生成 .docx | <10 秒 | <10 秒 |
@@ -138,14 +138,14 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 > 🎯 **精准档（MOSS）速度**：端到端自回归，约 1.5–2 倍实时（20 分钟音频约 30–40 分钟），换取最稳的说话人分离与标点；追时效请用快速档或云端。
 
 - **本机「首次≈后续」**：因为模型已缓存在本地，首次不再有下载开销。技能里的「首次转录会下载模型」提醒只对**全新机器第一次跑**才生效。
-- **全新机器首次**（换电脑）：本地模式额外加 ①pip 装依赖 ~1–2 分钟（国内镜像）+ ②模型下载（快速档 Paraformer-large ~800MB；精准档 MOSS ~1.8GB + torch 推理栈，GPU 版约 2.7GB，魔搭国内直连），即首次 **6–15 分钟**；云端模式永远不需要下载模型。
+- **全新机器首次**（换电脑）：本地模式额外加 ①快速档免 pip（零 Python 依赖）/精准档 pip 装依赖 ~1–2 分钟（国内镜像）+ ②模型下载（快速档 GGUF 运行时+模型仅 ~260MB，数秒到一分钟；精准档 MOSS ~1.8GB + torch 推理栈，GPU 版约 2.7GB，魔搭国内直连），即首次快速档 **3–6 分钟**、精准档 **6–15 分钟**；云端模式永远不需要下载模型。
 - **本地与云端耗时相当**（都约 4–8 分钟）；本地完全离线、无需 Key，云端需联网与 Key，两种方式都能满足常规转录需求。
 
 ---
 
 ## 💻 最低硬件配置
 
-本地转录对硬件要求不高（快速档 Paraformer-large 模型 ~800MB，SenseVoice 轻量 ~500MB），分两档；**精准档（MOSS）另需 ≥16GB 显存**：
+本地转录对硬件要求不高（快速档 SenseVoice q8 GGUF 仅需运行时 5MB + 模型 254MB，**纯 CPU 零 Python 依赖**；旧 Paraformer 引擎另需 funasr/torch 栈 + ~800MB 模型）；**精准档（MOSS）另需 ≥16GB 显存**：
 
 ### 纯 CPU 模式（无显卡也行）
 
@@ -163,16 +163,16 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 | 项 | 最低要求 | 说明 |
 |----|---------|------|
 | GPU | NVIDIA 显卡，≥4GB 显存，支持 CUDA | 入门级 GTX 1650 4GB / RTX 3050 4GB 即可 |
-| 显存占用 | Paraformer-large 推理约 3–4GB | 4GB 显存绰绰有余（SenseVoice 轻量仅 1–2GB） |
+| 显存占用 | 快速档 GGUF **无需 GPU**；旧 Paraformer 推理约 3–4GB | 4GB 显存绰绰有余 |
 | 精准档（MOSS）要求 | **建议 ≥16GB 显存** | 8 分钟/段实测峰值 ~10.3GB；8–12GB 显存请用快速档 |
-| 驱动 | 支持 CUDA 12.x | 需对应 NVIDIA 驱动版本 |
-| **20 分钟视频耗时** | **约 2–4 分钟** | 本机 RTX 4070 Ti SUPER 16GB 即此档（精准档 MOSS 约 30–40 分钟） |
+| 驱动 | 支持 CUDA 12.x（仅精准档/旧引擎需要） | 需对应 NVIDIA 驱动版本 |
+| **20 分钟视频耗时** | **约 1–2 分钟**（快速档纯 CPU 即此速度） | 本机 RTX 4070 Ti SUPER 16GB 即此档（精准档 MOSS 约 30–40 分钟） |
 
 > ⚠️ **硬性约束：**
 > 1. 必须是 **NVIDIA 显卡** 才能用已装的 CUDA 版 torch；AMD / Intel 核显无法用 CUDA，只能退回 CPU。
-> 2. **本地说话人分离**：快速档由 Paraformer-large 加载 `spk_model="cam++"`，单次 `generate()` 即返回每句说话人 id（按声纹自动聚类，无需额外 Key），再经 LLM 语义校正兜底；精准档（MOSS）端到端一次生成；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分。
+> 2. **本地说话人分离**：快速档（GGUF）**无模型内分离** → 必接 Step 3.5C LLM 语义重切；精准档（MOSS）端到端一次生成；旧 Paraformer 引擎由 CAM++ 声纹聚类给出每句说话人 id，再经 LLM 语义校正兜底；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分。
 > 3. **ffmpeg 必需**（视频抽静帧、提取音频），独立下载项，不算在 Python 环境里。
-> 4. **首次需联网**：下载模型（快速档 Paraformer-large ~800MB；精准档 MOSS ~1.8GB，魔搭国内直连）+ pip 依赖；之后可完全离线跑 ASR。
+> 4. **首次需联网**：下载模型（快速档 GGUF 运行时+模型仅 ~260MB；精准档 MOSS ~1.8GB + torch 栈，魔搭国内直连）+ pip 依赖（仅精准档/旧引擎）；之后可完全离线跑 ASR。
 
 ---
 
@@ -181,8 +181,8 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 - **文档命名规范**：`拍摄时间+人物简介`，如 `26-0509 车辆学院直博生`（人物简介 ≤10 字）。
 - **多段音视频合并**：必须**明确告知哪几个文件属于同一段音视频**，Agent 才会合并转录为一篇文档；未说明则每个文件各成一篇。
 - **智能静帧**：由 `scripts/extract_frame.py` 将视频**五等分、各抽 1 帧**并按清晰度比选最清晰的一张（输入定位，不软解整段视频，避免黑屏/字幕遮挡帧）。
-- **三档模型选择**：快速（FunASR）/ 精准（MOSS）/ 云端（Qwen3-ASR-Flash）。Agent 先检测显卡配置推荐一档，你三选一；未表态则按推荐档执行，随时可切。
-- **时间码精度**：本地 Paraformer-VAD 为真实句级时间码；SenseVoice 为句级插值估算（段落边界精确，段内为估算值）；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
+- **三档模型选择**：快速（SenseVoice q8 GGUF）/ 精准（MOSS）/ 云端（Qwen3-ASR-Flash）。Agent 先检测显卡配置推荐一档，你三选一；未表态则按推荐档执行，随时可切。
+- **时间码精度**：快速档 GGUF 为 VAD 段级真实时间码（段内切句为插值估算，段落边界精确）；精准档 MOSS / 旧 Paraformer 为真实句级时间码；云端段内为估算值（4 分钟粒度），文档中已标注，请勿当作精确时间。
 - **Windows 路径**：使用正斜杠 `/`，避免中文路径传给 API。
 - **长文本处理**：LLM 单次输入建议不超过 8000 字符，超长需分段。
 - **在线文档上传**：部分平台 API 限制内容长度，超长文档需分段上传。
@@ -193,6 +193,7 @@ export DASHSCOPE_API_KEY="sk-your-key-here"
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v1.13.1 | 2026-09-07 | **多视角一致性审查修复（v1.13.0 遗留）**：① SKILL.md「说话人识别说明」「注意事项」与 README「性能/硬件/首次下载」共 15+ 处仍写「快速档 = Paraformer+CAM++」的 v1.12 旧文案，全部对齐 v1.13.0（快速档 = SenseVoice q8 GGUF 无内分离 → 3.5C）；② 修复 SKILL.md Step 6 乱码残句；③ Step 3.56/3.65 时间码说明对齐 GGUF VAD 段级时间码；④ 新增 `scripts/pack_release.py`（SkillHub 上传打包：排除 .git/__pycache__/缓存，文件数 ≤200 校验，可选出 zip）；⑤ 新增 `references/qa_checklist.md` 冒烟自检清单；⑥ frontmatter 增加 version 字段 |
 | v1.13.0 | 2026-09-07 | **快速档引擎更换：Paraformer-large → SenseVoice-Small q8（GGUF）**：实测（FDE 会议 199s + 北大街采 90s）纯 CPU ~33 倍实时、自带标点+数字规整、中文 CER 7.99%，运行时 5MB + 模型 254MB **零 Python/torch 依赖**。新增 `scripts/transcribe_gguf.py`（复用 transcribe_config.json，`--srt` 取 VAD 级时间戳，**内置日文假名伪影过滤**——SenseVoice 在说话人切换处偶发「さいや」类语种标签）；快速档无内分离 → Step 3.5C 语义重切升级为**快速档必做**；Step 3.5B 限定旧 Paraformer 引擎与 MOSS 复核；档位表/推荐逻辑/切段/通知模板/时间码说明全面改写；旧 Paraformer-large 保留为可选引擎（`transcribe_local.py --model paraformer`） |
 | v1.12.3 | 2026-09-07 | **新增 Step 3.5C 多说话人语义重切（`scripts/resegment_speakers.py`）**：快速档 CAM++ 的 `preset_spk_num=2` 是双人采访假设，论坛式大会（主持人+多嘉宾+观众）必然把多人并成 1 类。本脚本不重转音频，直接对 transcript.json 逐句做 LLM 语义重分段——内置编号白名单（防 LLM 批间自造编号）、非法编号回退上一说话人、批间 12 句重叠上下文+全局编号表；实测 155 分钟/11 说话人大会全部分对。输出 `.sem.json` + `.meta.json`（含说话人描述供角色映射）。触发条件与双人采访排除规则写入 SKILL.md |
 | v1.12.2 | 2026-09-07 | **快速档文本精修 + 文档格式优化**：① 新增 `scripts/refine_paragraphs.py`（Step 3.56）——LLM 对 document.json 逐轮做标点修复（治 Paraformer+ct-punc 的「因。为」错位）、按语义重排自然段（治长独白 ~160 字机械切段的胡乱换行）、轻度精简语气词；单轮长度校验失败自动回退原文，续段时间码按字数占比插值；快速档强烈推荐、MOSS 可跳过。② `build_docx.py` 长独白续段改为**时间码一行 + 内容另起一行**（原为同行拼接，docx 与 Markdown 导出同步修改）。③ 「文档信息·转录工具」自动追加档位与模型大小标注（`_tool_with_size`：快速档 Paraformer-large ~900MB + CAM++ ~30MB / 精准档 MOSS 0.9B ~1.8GB + torch GPU 栈 ~2.7GB / 云端无需本地模型），SKILL.md Step 2.5 档位表加「模型大小」列 |

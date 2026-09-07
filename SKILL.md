@@ -1,6 +1,7 @@
 ---
 name: interview-transcriber
 display_name: 音视频转文档
+version: 1.13.1
 description: |
   音视频转文档全流程处理技能（支持视频与音频输入，也支持「一段音视频拆成多段文件」合并转录）。三档模型选择（Step 2.5）：① 快速 = SenseVoice-Small q8 量化（FunASR GGUF/llama.cpp 运行时，纯 CPU ~33 倍实时、零 Python/torch 依赖，运行时 5MB + 模型 254MB，自带标点与数字规整；⚠️ 无模型内说话人分离，必接 Step 3.5C LLM 语义重切，并内置日文假名伪影过滤）；② 精准 = MOSS-Transcribe-Diarize 0.9B 端到端（转录+说话人+时间戳一次生成，分离最稳、标点自然；⚠️ 首次需联网下载 ~1.8GB 模型 + torch/transformers 推理栈，GPU 版约 2.7GB；16GB 显存实测安全，段长已收紧到 8 分钟）；③ 云端 = Qwen3-ASR-Flash（需 DashScope Key）。开始前检测本机 GPU 配置自动推荐档位，用户三选一、随时可切。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 按所选档位转录 -> 说话人分离（精准档 MOSS 端到端一次生成并自动归并为采访者/受访者、快速档 GGUF 无内分离走 LLM 语义重切、云端 LLM 语义切分，支持多说话人）-> LLM 生成内容摘要与人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
   若用户把一段音视频拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段音视频，技能自动合并转录为一篇文档。
@@ -111,7 +112,7 @@ agent_created: true
 
 | 档位 | 引擎 | 模型大小 | config 写法 | 特点 |
 |------|------|------|------|------|
-| **① 快速** | **SenseVoice-Small q8 量化**（FunASR GGUF/llama.cpp 运行时） | 运行时 exe ~5MB + 模型 **254MB** + VAD 1.7MB（首次联网下载，之后离线；**零 Python/torch 依赖**） | `mode:"local"`, `model:"sensevoice"`（转录用 `transcribe_gguf.py`） | 纯 CPU ~33 倍实时、自带标点+数字规整、中文 CER 7.99%（184 集基准）；⚠️ 无模型内说话人分离 → **必须接 Step 3.5C LLM 语义重切**；内置日文假名伪影过滤；**推荐接 LLM 文本精修（3.56）与同音字校对（3.55）**。同音词偶错（实测「市状元」对、「寒门」错），精度低于 MOSS 但部署成本最低 |
+| **① 快速** | **SenseVoice-Small q8 量化**（FunASR GGUF/llama.cpp 运行时） | 运行时 exe ~5MB + 模型 **254MB** + VAD 1.7MB（首次联网下载，之后离线；**零 Python/torch 依赖**） | `mode:"local"`, `model:"sensevoice"`（转录用 `transcribe_gguf.py`） | 纯 CPU ~33 倍实时、自带标点+数字规整、中文 CER 7.99%（184 集基准）；⚠️ 无模型内说话人分离 → **必须接 Step 3.5C LLM 语义重切**；内置日文假名伪影过滤；**推荐接 LLM 文本精修（3.56）与同音字校对（3.55）**，同音词偶错由此兜底，精度略低于 MOSS 但部署成本最低 |
 | **② 精准** | MOSS-Transcribe-Diarize 0.9B 端到端 | 0.9B 模型 ~1.8GB + torch GPU 推理栈 ~2.7GB（首次联网下载） | `mode:"local"`, `model:"moss"` | 转录+说话人+时间戳一次生成，分离最稳、标点最自然；速度慢（约 1.5–2 倍实时），显存要求高（≥16GB） |
 | **③ 云端** | Qwen3-ASR-Flash | **无需本地模型** | `mode:"cloud"` + api_key | 不吃本机算力、长音频 4 分钟/段；需 DashScope Key，说话人走 LLM 语义切分 |
 
@@ -235,7 +236,7 @@ python <skill_dir>/scripts/benchmark_wespeaker.py --source <音频> --start 600 
 
 ### Step 3.56: 文本精修——标点修复 + 段落重排（快速档强烈推荐）
 
-快速档（Paraformer + ct-punc）的标点常错位（如「因。为」）或缺标点，长独白还会被按 ~160 字机械切段导致胡乱换行。用 `refine_paragraphs.py` 让 LLM 对 document.json 逐轮做：①标点恢复/归位 ②按语义重排自然段（续段时间码按字数占比插值）③轻度精简语气词；单轮长度校验失败自动回退原文，不丢内容。
+快速档（SenseVoice q8 GGUF）偶发标点错位（如「因。为」）、标点风格与 MOSS 不同，长独白还会被按 ~160 字机械切段导致胡乱换行。用 `refine_paragraphs.py` 让 LLM 对 document.json 逐轮做：①标点恢复/归位 ②按语义重排自然段（续段时间码按字数占比插值）③轻度精简语气词；单轮长度校验失败自动回退原文，不丢内容。
 
 ```bash
 python <skill_dir>/scripts/refine_paragraphs.py "<输出目录>/<标题>_document.json" \
@@ -270,7 +271,7 @@ python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.j
 python <skill_dir>/scripts/build_document.py "<output_dir>/<标题>_transcript.json" "<output_dir>/<标题>_document.json" --apply corrections.json
 ```
 
-- 脚本消费 `transcript.json` 的 `segments`：Paraformer-VAD 已带**真实句级** start/end（精确到句）；SenseVoice 则整段一块、start/end 为 0，由本脚本「按标点切句 + 各段偏移/时长线性插值」得到——**段内为估算值，段落边界才精确，勿标「精确到秒」**。无需再解析 `raw_text`。
+- 脚本消费 `transcript.json` 的 `segments`：精准档（MOSS）与旧 Paraformer 引擎带**真实句级** start/end（精确到句）；快速档（GGUF）的 segments 为 **VAD 段级真实时间码**（`--srt` 所得），段边界精确，段内由本脚本「按标点切句 + 段内插值」得到——**段内为估算值，段落边界才精确，勿标「精确到秒」**。无需再解析 `raw_text`。
 - 说话人角色：精准档（MOSS）已用模型内分离好（每段带真实 `SPEAKER_XX`），`--auto` 统一按首次出现顺序中性命名为 说话人1/2/3……，**无需 LLM**。⚠️ **快速档（GGUF）与云端转录全部是占位 SPEAKER_00，`--auto` 无意义——必须先过 Step 3.5C/3.5 的 LLM 语义重切得到真实说话人，再走 `--apply`**。命名有误时再用 `--apply` 覆盖 `speaker_roles` 即可。⚠️ **轻量闭环（命名不准才用）**：① `python build_document.py transcript.json --review` 打印逐句 + 说话人分布；② 若自动命名不准，把角色映射写成 `corrections.json`：`{"speaker_roles": {"说话人1":"张三","说话人2":"李四"}, "summary":"…", "summary_sections":[{"title":"…","content":"…"}, ...], "person_info":[…]}`；③ `python build_document.py transcript.json document.json --apply corrections.json` 自动按 speaker id 映射角色、合并连续同角色为 turn，写出最终 `document.json`（无需手改嵌套 JSON，避免出错）。
 - 随后 Agent 把 Step 3.6 的 `summary` / `summary_sections` / `person_info` 写入同一 `document.json`（无信息则 `person_info: []` 整段省略；多人多表）。
 - 也可 `import` 本脚本的 `parse_sentences / assign_speaker_labels / assemble_document` 在 Agent 代码里直接调用。
@@ -326,10 +327,10 @@ rm -f _seg*.mp3 _seg*.wav _audio_*.wav 输出.wav _upload.md *_raw.txt *_transcr
 ## 说话人识别说明
 
 - ❌ 启发式方法（关键词+段落长度）：已废弃，完全不可靠。
-- ✅ 云端模式：Qwen3-ASR-Flash 转录 + LLM 语义切分（支持多说话人）。
-- ✅ 本地快速档（FunASR Paraformer + CAM++）：Paraformer 转录 + CAM++ 说话人分离（按声纹自动聚类，免 HF Token），两人对话按「提问密度+轮长」归并为 采访者/受访者；**CAM++ 偶发贴反，必须接 LLM 语义校正（Step 3.5B 的 correct_speakers.py）兜底**。
-- ✅ 本地精准档（MOSS 端到端）：转录+说话人+时间戳一次生成，分离最稳；分布异常（贴反/粘连）时回退快速档重跑。
-- Qwen3-ASR-Flash 不直接支持说话人分离；云端最优方案为「转录 + LLM 语义分段」。
+- ✅ 快速档（SenseVoice q8 GGUF）：运行时**无模型内说话人分离**，全部句子为占位 SPEAKER_00 → **必须接 Step 3.5C LLM 语义重切**（双人重切为 2 人、论坛式自动扩展到 2–20 人），再按「提问密度+轮长」归并角色。
+- ✅ 精准档（MOSS 端到端）：转录+说话人+时间戳一次生成，分离最稳；分布健康时仅轻量复核，分布异常（贴反/粘连）时回退快速档或走 3.5C 重切。
+- ✅ 旧 Paraformer 引擎（可选）：CAM++ 声纹聚类给出句子级说话人，偶发贴反/并人 → Step 3.5B LLM 语义校正兜底；>2 人论坛场景建议直接走 3.5C 重切。
+- ✅ 云端：Qwen3-ASR-Flash 无原生说话人分离，仍需 LLM 语义切分（支持多说话人）。
 
 ## 错误处理与失败恢复
 
@@ -346,16 +347,16 @@ rm -f _seg*.mp3 _seg*.wav _audio_*.wav 输出.wav _upload.md *_raw.txt *_transcr
 ## 注意事项
 
 - **多段音视频需用户明确说明归属**，才合并为一篇文档；未说明则各成一篇
-- **本地快速档说话人由 CAM++ 模型内分离，再经 LLM 语义校正（Step 3.5B correct_speakers.py）兜底**；精准档 MOSS 端到端（分离最稳但慢、显存要求高）；仅云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分（启发式已废弃）。
+- **快速档（SenseVoice q8 GGUF）无模型内说话人分离** → 必接 Step 3.5C LLM 语义重切；精准档 MOSS 端到端（分离最稳但慢、显存要求高）；旧 Paraformer 引擎走 CAM++ + 3.5B 校正；云端 Qwen3-ASR-Flash 无原生分离、仍走 LLM 语义切分（启发式已废弃）。
 - **DashScope 调用统一**：音频转录用 `MultiModalConversation.call(model="qwen3-asr-flash")`；文本任务（说话人/摘要/同音字）用 `scripts/call_qwen.py`（`Generation.call`, qwen-plus）。务必 `pip install -U dashscope`，勿用已变更的 `Transcription.call`（版本兼容见 references/dashscope_setup.md）
-- **Step 2.5 三档模型选择**（快速 FunASR / 精准 MOSS / 云端 Qwen3-ASR）：先检测本机配置给出推荐，用户三选一；未表态按推荐档执行，随时可切
-- **GPU 加速（本地两档均受益）**：`setup_env.py` 检测到 NVIDIA GPU 会自动装 CUDA 版 torch，本地 Paraformer-large/SenseVoice/MOSS 推理走 GPU（RTX 40 系约数倍提速）；无 GPU 则装 CPU 版。档位选择见 Step 2.5，不强制云端
-- **输入类型自动识别**：视频才提取静帧；快速档视频**需转 16k 音频**（MP3/WAV，prepare.py 自动完成）；精准档（moss）视频免转 MP3（transcribe_local.py 内部自动提 16k WAV、用完即删）；音频 `frame_path=null` 不输出静帧
-- **切段决策在 Step 2.5 选档之后、模型自动**：云端 >5 分钟必切，快速档（FunASR）>20 分钟建议切，精准档（MOSS）≤15 分钟整段、超则 8 分钟/段防 OOM，均不询问
-- **本地说话人分离**：快速档由 CAM++ 模型内聚类 + LLM 语义校正（Step 3.5B）兜底；精准档（MOSS）端到端一次生成、分布异常回退快速档；云端 Qwen3-ASR-Flash 无原生分离、走 LLM 语义切分；支持多说话人（群访无需额外配置）；无需 HF Token、无需 pyannote
-- **全程无需 HuggingFace**：本地说话人走 CAM++（模型内、魔搭直连），模型仅 Paraformer-large/SenseVoice；已移出 faster-whisper / pyannote
+- **Step 2.5 三档模型选择**（快速 SenseVoice q8 GGUF / 精准 MOSS / 云端 Qwen3-ASR）：先检测本机配置给出推荐，用户三选一；未表态按推荐档执行，随时可切
+- **GPU 加速**：快速档 GGUF 纯 CPU 已极快（~33 倍实时）无需 GPU；`setup_env.py` 检测到 NVIDIA GPU 会自动装 CUDA 版 torch，供精准档 MOSS / 旧 Paraformer 引擎走 GPU（RTX 40 系约数倍提速）；无 GPU 则装 CPU 版。档位选择见 Step 2.5，不强制云端
+- **输入类型自动识别**：视频才提取静帧；快速档/云端视频**需转 16k 音频**（MP3/WAV，prepare.py 自动完成）；精准档（moss）视频免转 MP3（transcribe_local.py 内部自动提 16k WAV、用完即删）；音频 `frame_path=null` 不输出静帧
+- **切段决策在 Step 2.5 选档之后、模型自动**：云端 >5 分钟必切，快速档（GGUF）>20 分钟按 4 分钟/段切（短音频整段），精准档（MOSS）≤15 分钟整段、超则 8 分钟/段防 OOM，均不询问
+- **说话人分离路线汇总**：快速档 GGUF 无内分离 → 3.5C 语义重切；精准档（MOSS）端到端一次生成、分布异常走 3.5C；旧 Paraformer 引擎 CAM++ 聚类 + 3.5B 校正；云端走 LLM 语义切分；支持多说话人（群访无需额外配置）；无需 HF Token、无需 pyannote
+- **全程无需 HuggingFace**：快速档模型走 FunASR GGUF 直链（见 references/model_download.md）、MOSS/旧 Paraformer 走魔搭直连；已移出 faster-whisper / pyannote
 - Windows 路径用正斜杠（`C:/...` 或相对路径，勿用 Git Bash 的 `/c/...` 写法，脚本已自动兼容转换）；`bc` 不可用（用 Python 算）；bash heredoc 不吃 `\s`（正则写 .py 文件）
 - **长文本 LLM 分段**：单次输入 ≤ 8000 字符，超长分段后合并
-- **时间码精度**：本地 Paraformer-VAD 为真实句级时间码；SenseVoice 段内为插值估算（段落边界精确）；云端段内为估算值（4 分钟粒度）；文档已如实标注，勿当精确时间
+- **时间码精度**：快速档 GGUF 为 VAD 段级真实时间码（段内切句为插值估算，段落边界精确）；精准档 MOSS / 旧 Paraformer 为真实句级时间码；云端段内为估算值（4 分钟粒度）；文档已如实标注，勿当精确时间
 - **收尾必须主动询问交付位置**（Step 6），未经确认不上传外部平台
 - **最终交付 .docx**：转录脚本输出 `_transcript.json`，Agent 写 `_document.json`，`build_docx.py` 直接生成 .docx（分发到在线平台时导出临时 Markdown，上传后即删）

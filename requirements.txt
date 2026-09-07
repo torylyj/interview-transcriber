@@ -2,19 +2,21 @@
 # 安装请走国内镜像（见 scripts/setup_env.py 或 README「安装」章节），例如：
 #   pip install -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt
 #
-# 默认覆盖两种模式：
+# 各档位实际需求（v1.13.0+）：
+#   - 快速档（SenseVoice q8 GGUF）：**零 Python 依赖**——GGUF 运行时单 exe，仅 ffmpeg；
+#     本文件 5 个包对快速档不是必需，只为精准档/云端/旧引擎准备
 #   - 云端转录（Qwen3-ASR-Flash）：dashscope + python-docx（+ 视频时 pillow/ffmpeg）
-#   - 本地转录（SenseVoice/Paraformer）：funasr + modelscope + python-docx（+ 视频时 pillow/ffmpeg）
+#   - 精准档（MOSS）/ 旧 Paraformer 引擎：funasr + modelscope + python-docx（+ 视频时 pillow/ffmpeg）
 #
 # 说明：
-#   - funasr / modelscope ：本地 SenseVoice / Paraformer 转录（模型从魔搭社区国内直连下载，无需 HF）
+#   - funasr / modelscope ：精准档 MOSS / 旧 Paraformer 引擎（模型从魔搭社区国内直连下载，无需 HF）
 #   - python-docx / pillow ：生成 .docx 与静帧清晰度计算（必需）
 #   - dashscope            ：云端 Qwen3-ASR-Flash 转录 + 文本任务（说话人/摘要 LLM）
 #
 # ⚠️ 已移出默认（不推荐、可省，无需安装即可完成全流程）：
-#   - faster-whisper  ：~3GB 模型，中文质量一般，本地 Paraformer 已更准
-#   - pyannote.audio  ：声纹分离，需 HuggingFace Token；**已废弃**——本地说话人改由
-#     CAM++ 说话人嵌入（FunASR spk_model，随 FunASR 自动从魔搭下载、免 Token），云端走 LLM 语义切分
+#   - faster-whisper  ：~3GB 模型，中文质量一般
+#   - pyannote.audio  ：声纹分离，需 HuggingFace Token；**已废弃**——说话人分离由
+#     MOSS 端到端 / GGUF+LLM 语义重切 / 旧引擎 CAM++ 完成，云端走 LLM 语义切分
 #   若确有需要，单独安装：
 #   pip install -i https://mirrors.aliyun.com/pypi/simple faster-whisper pyannote.audio
 
