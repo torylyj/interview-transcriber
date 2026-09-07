@@ -31,7 +31,8 @@ MAX_FILES = 200  # SkillHub 上传硬限制
 # 排除的目录名 / 文件模式（相对路径匹配）
 EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", "tools", "node_modules", ".pytest_cache"}
 EXCLUDE_PATTERNS = ["*.pyc", "*.pyo", "*.log", ".DS_Store", "Thumbs.db", "*.bak",
-                    ".gitignore", ".gitattributes"]  # SkillHub 拒绝 git 相关文件类型
+                    ".gitignore", ".gitattributes",  # SkillHub 拒绝 git 相关文件类型
+                    "LICENSE", "LICENSE*", "COPYING"]  # SkillHub 拒绝 LICENSE 文件类型
 
 
 def is_excluded(rel: Path) -> bool:
