@@ -173,6 +173,22 @@ python <skill_dir>/scripts/build_document.py <标题>_transcript.json <标题>_d
 
 > 说明：本地说话人走 CAM++ 是按声纹聚类（模型内、快），再经 3.5B 的 LLM 语义校正兜底——比旧版「纯逐句启发式」或「纯 LLM 语义切分」更稳，直接给出「谁在何时说 + 角色是否正确」。
 
+#### Step 3.5C: 多说话人语义重切（论坛式会议快速档专用，2026-09-07 实测）
+
+**触发条件（满足其一就考虑）：** ① 用户说明这是大会/论坛/圆桌（非双人采访）；② 快速档转录后抽查发现主持人串场轮次（"接下来有请…""感谢分享"）或嘉宾被并进同一说话人；③ 说话人分布严重失衡且轮次内出现多人对话痕迹。CAM++ 的 `preset_spk_num=2` 是双人采访假设，**论坛式 >2 人场景必然把多人并成 1 类**——此时 3.5B 的角色校正救不了"人数"本身，必须语义重切。
+
+**做法（不重转音频）：** 用 `resegment_speakers.py` 对已有 transcript.json 的句子做 LLM 语义级说话人重分段：
+
+```bash
+python <skill_dir>/scripts/resegment_speakers.py "<输出目录>/<标题>_transcript.json" \
+    --api-key $DASHSCOPE_API_KEY
+# 输出 <标题>_transcript.sem.json（仅改 speaker 字段）+ .meta.json（说话人描述+分布）
+```
+
+- 内置实测修复：**编号白名单**（LLM 批间自造编号→非法编号回退上一说话人）、上限 20 人、批间 12 句重叠上下文 + 全局编号表保证跨批一致。
+- 50 分钟音频约 11 批（~5 分钟）；输出 meta 里 LLM 给出的说话人描述很准（含"安叔""安娜"等称呼线索），据此写 `corrections.json` 的 `speaker_roles`（说话人1/2/3… → 主持人/嘉宾·XX/观众提问·XX）再 `build_document.py --apply`。
+- **双人采访不要用本步**（CAM++ + 3.5B 已足够且更省）；精准档 MOSS 若也遇到 >2 人，同样适用。
+
 ### WeSpeaker 说话人重贴标（CAM++ 可选替换，2026-07-31 实测：等价、非更优）
 
 WeSpeaker 提供 `load_model('chinese')`（CNCeleb ResNet34，256 维）作为更强的说话人嵌入模型，可替换 CAM++ 的句子级贴标。**实测结论：在真实双人采访上与 CAM++ 分区基本等价**（翻转标号后两方法一致率 92.9%，真正差异仅 7.1% 且全在转场亚秒碎片），质量未明显更优，但需多跑一个模型、且导入更脆弱。故**默认仍用 CAM++**；仅当某片段 CAM++ 明显贴反人时，用下方工具对已有 transcript 做 WeSpeaker 重贴标（不改动主转录流程）。
