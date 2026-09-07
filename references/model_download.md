@@ -75,12 +75,52 @@ huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_HF_TOKEN
 
 ## 快速档：SenseVoice q8 GGUF 运行时（v1.13.0 起）
 
-单 exe + 两个 GGUF 文件，**无需 Python/torch/venv**：
+单 exe + 两个 GGUF 文件，**无需 Python/torch/venv**。默认解压/放置路径 `G:/llamacpp-asr/`（runtime/ 与 gguf/），可用 `transcribe_gguf.py --runtime-dir/--gguf-dir` 覆盖。
 
-| 文件 | 大小 | 来源 |
+### 多镜像下载渠道（按国内可达性排序，失败逐个换）
+
+**① 模型文件（二选一下齐）——首选魔搭（国内直连，2026-09-07 实测 ~4MB/s）：**
+
+| 文件 | 大小 | 魔搭（首选，国内直连） | HuggingFace（需代理） | hf-mirror（备选） |
+|------|------|------|------|------|
+| sensevoice-small-q8.gguf | 254MB | `https://www.modelscope.cn/models/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/master/sensevoice-small-q8.gguf` | `https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf` | `https://hf-mirror.com/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf` |
+| fsmn-vad.gguf | 1.7MB | `https://www.modelscope.cn/models/FunAudioLLM/fsmn-vad-GGUF/resolve/master/fsmn-vad.gguf` | `https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf` | `https://hf-mirror.com/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf` |
+
+> - 还有 f16 版 `sensevoice-small-f16.gguf`（470MB，精度略高，q8 已够用）。
+> - ⚠️ hf-mirror 实测：元数据可达，但 LFS 大文件会 302 到海外 xet CDN，国内直连不稳——**仅作备选**。
+> - SHA-256（模型同仓库校验）：魔搭 files API 返回 `Sha256` 字段可直接核对。
+
+**② 运行时 exe（v0.2.6，按后端选一个）：**
+
+| 包 | 大小 | 适用 |
 |------|------|------|
-| funasr-llamacpp-windows-x64-avx2.zip（解压为 runtime/） | ~5MB | `https://github.com/modelscope/FunASR/releases/download/runtime-llamacpp-v0.2.6/funasr-llamacpp-windows-x64-avx2.zip` |
-| sensevoice-small-q8.gguf | 254MB | `https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf` |
-| fsmn-vad.gguf | 1.7MB | `https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf` |
+| funasr-llamacpp-windows-x64-avx2.zip | ~5MB | **默认 CPU**（近 10 年 x86 通用） |
+| funasr-llamacpp-windows-x64-cuda.zip | **412MB** | **NVIDIA GPU 加速**（内置 cuBLAS/cublasLt CUDA 13 DLL + 静态 MSVC 运行时，无需另装 CUDA Toolkit） |
+| funasr-llamacpp-windows-x64-cuda-blackwell.zip | ~412MB | RTX 50 系（sm_120）专用 |
+| funasr-llamacpp-windows-x64-vulkan.zip | — | AMD/Intel 显卡 |
+| linux-x64 / macos-arm64 / linux-arm64 等 | — | 其他平台，见 Release 页 |
 
-默认解压/放置路径 `G:/llamacpp-asr/`（runtime/ 与 gguf/），可用 `transcribe_gguf.py --runtime-dir/--gguf-dir` 覆盖。macOS/Linux 用户从同一 Release 页取对应平台包（CUDA/Vulkan 后端可选 `--backend`）。实测速度：纯 CPU AVX2 约 33 倍实时（199s 音频 6.2s）；精度（中文 184 集基准）CER 7.99%，优于 Paraformer q8（9.78%）。
+下载地址（GitHub Release `runtime-llamacpp-v0.2.6`）：
+- 直连：`https://github.com/modelscope/FunASR/releases/download/runtime-llamacpp-v0.2.6/<包名>`
+- 国内打不开时用社区加速前缀拼接（按可用性逐个试，非官方、随时失效）：
+  `https://ghfast.top/<原地址>`、`https://gh-proxy.com/<原地址>`、`https://gh.llkk.cc/<原地址>`
+- 全部失败时到 funasr.com/deploy/llama-cpp.html 找最新镜像说明（官方文档页，国内可达）。
+
+**CUDA 包 SHA-256 校验（2026-09-07 已验证）：** `148657911fb666b7af6ec43af2e23a0984e3259012b4c39f95631b717feb6840`（其余包的 SHA-256 见 funasr.com 部署页表格）。
+
+### GPU 加速（CUDA 版实测，2026-09-07，RTX 4070 Ti SUPER 16GB）
+
+199s 中文会议音频（q8 模型）：
+
+| 指标 | CPU（AVX2） | CUDA | 提速 |
+|------|------|------|------|
+| 推理算力耗时 | 7.37s | 3.59s | **2.05×** |
+| 端到端（含模型加载） | 8.0s | 5.3s | 1.5× |
+| 实时倍率 | ~25× | ~38× | — |
+
+- 文本质量等价：两后端输出仅 3 处 1–2 字微差（q8 量化解码固有浮动，非 GPU 引入）。
+- **要求**：NVIDIA 驱动需支持 CUDA 13（R580+ 驱动；RTX 40/30/20 系用标准 cuda 包，RTX 50 系用 blackwell 包）。
+- **用法**：解压 cuda.zip 为 `runtime-cuda/`，转录命令加 `--runtime-dir <路径>/runtime-cuda --backend cuda`；`transcribe_gguf.py --backend` 已支持 cpu/cuda/vulkan。Vulkan 后端适合 AMD/Intel 显卡（Windows AMD 曾有 0xC0000005 崩溃案例，v0.2.6 已修大部分，异常时回退 CPU）。
+- **建议**：CPU 已 ~33 倍实时，日常够用；CUDA 版为**可选提速**，155 分钟长音频 CPU 约 5.5 分钟 → GPU 约 3 分钟。
+
+实测速度：纯 CPU AVX2 约 33 倍实时（199s 音频 6.2s）；精度（中文 184 集基准）CER 7.99%，优于 Paraformer q8（9.78%）。

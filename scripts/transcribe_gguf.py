@@ -141,11 +141,18 @@ def main():
     missing = [p for p in (exe, model, vad) if not os.path.exists(p)]
     if missing:
         log("❌ GGUF 运行时/模型缺失: " + ", ".join(missing))
-        log("   下载方法：")
-        log("   1) 运行时: https://github.com/modelscope/FunASR/releases/download/"
+        log("   下载方法（多镜像，国内优先魔搭直连）：")
+        log("   1) 运行时（CPU AVX2，~5MB）: https://github.com/modelscope/FunASR/releases/download/"
             "runtime-llamacpp-v0.2.6/funasr-llamacpp-windows-x64-avx2.zip （解压即为 runtime 目录）")
-        log("   2) 模型:   https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf")
-        log("            https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf")
+        log("      GitHub 打不开时用镜像（前缀拼接）: https://ghfast.top/ 或 https://gh-proxy.com/")
+        log("      NVIDIA 显卡可下 CUDA 版（~412MB，含 cuBLAS，推理约 2 倍提速）:")
+        log("      .../runtime-llamacpp-v0.2.6/funasr-llamacpp-windows-x64-cuda.zip")
+        log("   2) 模型（国内首选魔搭，实测 ~4MB/s）:")
+        log("      https://www.modelscope.cn/models/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/master/sensevoice-small-q8.gguf")
+        log("      https://www.modelscope.cn/models/FunAudioLLM/fsmn-vad-GGUF/resolve/master/fsmn-vad.gguf")
+        log("      备选 HuggingFace: https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf")
+        log("      备选 hf-mirror:  https://hf-mirror.com/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf")
+        log("      （更多镜像与 SHA-256 见 references/model_download.md）")
         sys.exit(2)
 
     merged = []
