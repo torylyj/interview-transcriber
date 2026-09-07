@@ -1,7 +1,7 @@
 ---
 name: interview-transcriber
 display_name: 音视频转文档
-version: 1.13.2
+version: 1.13.3
 description: |
   音视频转文档全流程处理技能（支持视频与音频输入，也支持「一段音视频拆成多段文件」合并转录）。三档模型选择（Step 2.5）：① 快速 = SenseVoice-Small q8 量化（FunASR GGUF/llama.cpp 运行时，纯 CPU ~33 倍实时、零 Python/torch 依赖，运行时 5MB + 模型 254MB，自带标点与数字规整；⚠️ 无模型内说话人分离，必接 Step 3.5C LLM 语义重切，并内置日文假名伪影过滤）；② 精准 = MOSS-Transcribe-Diarize 0.9B 端到端（转录+说话人+时间戳一次生成，分离最稳、标点自然；⚠️ 首次需联网下载 ~1.8GB 模型 + torch/transformers 推理栈，GPU 版约 2.7GB；16GB 显存实测安全，段长已收紧到 8 分钟）；③ 云端 = Qwen3-ASR-Flash（需 DashScope Key）。开始前检测本机 GPU 配置自动推荐档位，用户三选一、随时可切。流程：检测输入类型（视频/音频，音频跳过转 MP3 且无需静帧）-> 模型按能力自动决定是否切段 -> 按所选档位转录 -> 说话人分离（精准档 MOSS 端到端一次生成并自动归并为采访者/受访者、快速档 GGUF 无内分离走 LLM 语义重切、云端 LLM 语义切分，支持多说话人）-> LLM 生成内容摘要与人物信息 -> 直接生成带时间码的 Word 文档（.docx；分发到在线平台时导出临时 Markdown，上传后即删）-> 自检精简语气词 -> 交付前预览确认 -> 可选分发到在线文档平台。
   若用户把一段音视频拆成多个视频/音频文件，需请用户明确告知哪几个文件属于同一段音视频，技能自动合并转录为一篇文档。
@@ -129,7 +129,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 - **无 NVIDIA GPU** → 有 DashScope Key 推荐 **云端**；没有则 **快速**（GGUF 纯 CPU ~33 倍实时，任何机器可跑）
 - **换电脑/临时机器、不想装 Python ML 环境** → 直接 **快速**（单 exe + 254MB 模型，几分钟就绪）
 - **长音频（>30 分钟）且追时效** → 即使显存够也提示：精准档约 1.5–2 倍实时，可改快速档
-- **快速档 GPU 提速（可选）**：本机有 NVIDIA 显卡且装了 CUDA 版运行时（`runtime-cuda/`，含 cuBLAS，~412MB）时，快速档推理再提速 ~2 倍（199s 音频 8.0s→5.3s）；纯 CPU 已 ~33 倍实时，为可选优化不强制。模型/运行时多镜像下载（魔搭直连优先）见 references/model_download.md
+- **快速档 GPU 提速（自动）**：`transcribe_gguf.py` 的 `--backend` 默认 **auto**——检测到 N 卡（驱动 ≥580）且装有 CUDA 版运行时即自动走 GPU（推理 ~2 倍提速，199s 音频 8.0s→5.3s），否则 CPU（~33 倍实时已够用）。**一键安装运行时/模型**：`python <skill_dir>/scripts/setup_gguf_runtime.py` 自动检测 GPU/驱动选 CPU 或 CUDA 包（RTX 50 系自动选 Blackwell 包）并从国内多镜像下载（魔搭直连优先）+ SHA-256 校验 + 幂等跳过已装组件。镜像明细与 SHA-256 见 references/model_download.md
 
 **交互方式：** 用一句话告知检测结果 + 推荐档位及理由，然后请用户三选一（WorkBuddy 用 AskUserQuestion，其他 Agent 用文字提问）；用户回答"你定/直接来"即按推荐档执行，全程可随时说"换快速/换精准/换云端"切换。选本地档时按下方提示交代首次模型下载耗时；选云端档则确认 api_key 已就绪。
 
@@ -156,7 +156,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 **3A. 云端（可选方式）**：`python <skill_dir>/scripts/transcribe_qwen.py --config transcribe_config.json` — 逐段调用 qwen3-asr-flash，生成 `<标题>_transcript.json`（含 metadata + `raw_text`，无 Markdown）。
 
 **3B. 本地（快速/精准档）**：
-- **快速档（sensevoice，默认）**：`python <skill_dir>/scripts/transcribe_gguf.py --config transcribe_config.json` — 调用 FunASR GGUF 运行时（llama-funasr-sensevoice.exe，纯 CPU 零依赖），`--srt` 取 VAD 级时间戳，脚本内置日文假名伪影过滤；输出 `<标题>_transcript.json`（说话人为占位 SPEAKER_00）。**N 卡提速可选**：`--backend cuda --runtime-dir <runtime-cuda 目录>`（CUDA 版运行时含 cuBLAS ~412MB，推理约 2 倍提速，输出与 CPU 等价；要求 R580+ 驱动）。运行时/模型缺失时脚本会打印**多镜像**下载地址（魔搭直连优先，模型 ~260MB，见 `references/model_download.md`）。
+- **快速档（sensevoice，默认）**：`python <skill_dir>/scripts/transcribe_gguf.py --config transcribe_config.json` — 调用 FunASR GGUF 运行时（llama-funasr-sensevoice.exe），`--srt` 取 VAD 级时间戳，脚本内置日文假名伪影过滤；输出 `<标题>_transcript.json`（说话人为占位 SPEAKER_00）。**`--backend` 默认 auto**：检测 N 卡 + runtime-cuda 自动走 GPU（~2 倍提速），否则 CPU。**运行时/模型缺失时一键安装**：`python <skill_dir>/scripts/setup_gguf_runtime.py`（GPU 自动识别选包 + 国内多镜像下载 + SHA-256 校验，详见 `references/model_download.md`）。
 - **精准档（moss）**：`python <skill_dir>/scripts/transcribe_local.py --config transcribe_config.json --model moss` — MOSS-Transcribe-Diarize 0.9B 端到端，说话人由模型分离并自动归并为 采访者/受访者（`_transcript.json` 已带 `SPEAKER_XX`）；跑完**检查说话人分布**，异常（如单一说话人占 95%+、问答粘连成超长轮）→ 回退快速档重跑。
 - **旧 Paraformer-large 引擎**（完整 FunASR 环境，声纹聚类 + CAM++）仍可用：`transcribe_local.py --model paraformer`，需要 venv + torch 栈（见 references/model_download.md）。
 

@@ -75,9 +75,19 @@ huggingface-cli download pyannote/speaker-diarization-3.1 --token YOUR_HF_TOKEN
 
 ## 快速档：SenseVoice q8 GGUF 运行时（v1.13.0 起）
 
-单 exe + 两个 GGUF 文件，**无需 Python/torch/venv**。默认解压/放置路径 `G:/llamacpp-asr/`（runtime/ 与 gguf/），可用 `transcribe_gguf.py --runtime-dir/--gguf-dir` 覆盖。
+单 exe + 两个 GGUF 文件，**无需 Python/torch/venv**。默认解压/放置路径 `G:/llamacpp-asr/`（runtime/、runtime-cuda/ 与 gguf/），可用 `transcribe_gguf.py --runtime-dir/--gguf-dir` 覆盖。
 
-### 多镜像下载渠道（按国内可达性排序，失败逐个换）
+### ⭐ 一键自动安装（首选，v1.13.3 起）
+
+```bash
+python <skill_dir>/scripts/setup_gguf_runtime.py            # 全自动
+python <skill_dir>/scripts/setup_gguf_runtime.py --verify   # 只检查
+python <skill_dir>/scripts/setup_gguf_runtime.py --force    # 强制重装
+```
+
+自动完成：① `nvidia-smi` 检测 GPU/驱动（驱动 ≥580 且有 N 卡 → 自动选 CUDA 包；RTX 50 系自动选 Blackwell sm_120 包；否则 CPU AVX2 包）；② 国内多镜像下载（失败自动逐个切换）；③ SHA-256 校验后解压到 `<base>/runtime[-cuda]/` 与 `<base>/gguf/`；④ 幂等——已装且校验通过的组件自动跳过。转录时 `transcribe_gguf.py --backend auto`（默认）自动在 CPU/CUDA 间选择。
+
+### 多镜像下载渠道（手动 / 自动脚本失败时排查，按国内可达性排序）
 
 **① 模型文件（二选一下齐）——首选魔搭（国内直连，2026-09-07 实测 ~4MB/s）：**
 

@@ -13,9 +13,9 @@
 用法:
   python transcribe_gguf.py --config transcribe_config.json \
       [--runtime-dir G:/llamacpp-asr/runtime] [--gguf-dir G:/llamacpp-asr/gguf] \
-      [--backend cpu|cuda|vulkan]
+      [--backend auto|cpu|cuda|vulkan]   # auto（默认）= 检测本机 N 卡自动选 cuda/cpu
 
-运行时与模型缺失时的下载说明见脚本输出。
+运行时/模型缺失时优先跑: python setup_gguf_runtime.py（GPU 自动识别 + 国内多镜像一键安装）
 """
 import argparse
 import json
@@ -123,17 +123,48 @@ def generate_raw_text(merged):
     return "\n".join(lines)
 
 
+def detect_cuda_runtime(runtime_dir):
+    """auto 后端解析：本机有 N 卡（驱动支持 CUDA 13）且 runtime-cuda 存在 → 用 GPU，否则 CPU。"""
+    base = os.path.dirname(os.path.abspath(runtime_dir.rstrip("\\/")))
+    cuda_exe = os.path.join(base, "runtime-cuda", "llama-funasr-sensevoice.exe")
+    if not os.path.exists(cuda_exe):
+        return runtime_dir, "cpu", None
+    try:
+        p = run(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"])
+        line = (p.stdout or "").strip().splitlines()
+        if p.returncode == 0 and line and "," in line[0]:
+            name, driver = [x.strip() for x in line[0].split(",", 1)]
+            major = int(driver.split(".")[0]) if driver.split(".")[0].isdigit() else 0
+            if major >= 580:
+                return os.path.dirname(cuda_exe), "cuda", name
+            log(f"⚠️ 检测到 {name} 但驱动 {major}.x 过旧（CUDA 13 需 ≥580），回退 CPU")
+    except Exception:
+        pass
+    return runtime_dir, "cpu", None
+
+
 def main():
     ap = argparse.ArgumentParser(description="快速档：SenseVoice q8 GGUF 转录（纯 CPU 零依赖）")
     ap.add_argument("--config", required=True)
     ap.add_argument("--runtime-dir", default=DEFAULT_RUNTIME)
     ap.add_argument("--gguf-dir", default=DEFAULT_GGUF)
-    ap.add_argument("--backend", default="cpu", choices=["cpu", "cuda", "vulkan"])
+    ap.add_argument("--backend", default="auto", choices=["auto", "cpu", "cuda", "vulkan"],
+                    help="auto=检测本机 N 卡自动选 cuda/cpu（默认）；cuda 需先安装 runtime-cuda")
     args = ap.parse_args()
 
     cfg = json.load(open(args.config, encoding="utf-8"))
     out_dir = cfg.get("output_dir") or os.path.dirname(os.path.abspath(args.config))
     title = cfg.get("title", "转录")
+
+    backend = args.backend
+    if backend == "auto":
+        args.runtime_dir, backend, gpu_name = detect_cuda_runtime(args.runtime_dir)
+        if gpu_name:
+            log(f"🚀 已启用 GPU 加速: {gpu_name}（CUDA 后端，推理约 2 倍提速）")
+        else:
+            log("💻 使用 CPU 运行时（纯 CPU ~33 倍实时）")
+    elif backend == "cuda":
+        log(f"🎮 指定 CUDA 后端，运行时目录: {args.runtime_dir}")
 
     exe = os.path.join(args.runtime_dir, "llama-funasr-sensevoice.exe")
     model = os.path.join(args.gguf_dir, "sensevoice-small-q8.gguf")
@@ -141,7 +172,9 @@ def main():
     missing = [p for p in (exe, model, vad) if not os.path.exists(p)]
     if missing:
         log("❌ GGUF 运行时/模型缺失: " + ", ".join(missing))
-        log("   下载方法（多镜像，国内优先魔搭直连）：")
+        log("   ⭐ 一键自动安装（检测 GPU 自动选 CPU/CUDA 版 + 国内多镜像下载）:")
+        log("      python <skill_dir>/scripts/setup_gguf_runtime.py")
+        log("   手动下载方法（多镜像，国内优先魔搭直连）：")
         log("   1) 运行时（CPU AVX2，~5MB）: https://github.com/modelscope/FunASR/releases/download/"
             "runtime-llamacpp-v0.2.6/funasr-llamacpp-windows-x64-avx2.zip （解压即为 runtime 目录）")
         log("      GitHub 打不开时用镜像（前缀拼接）: https://ghfast.top/ 或 https://gh-proxy.com/")
@@ -166,7 +199,7 @@ def main():
         dur = ffprobe_duration(seg_path) or 0
         wav = to_wav(seg_path, os.path.join(out_dir, f"_gguf_tmp_{i}.wav"))
         log(f"[{i}/{total}] {os.path.basename(seg_path)}（{dur:.0f}s）转录中…")
-        srt_items = transcribe_segment(exe, model, vad, wav, args.backend)
+        srt_items = transcribe_segment(exe, model, vad, wav, backend)
         sents = clean_and_split(srt_items)
         for s in sents:
             merged.append({"speaker": "SPEAKER_00", "text": s["text"],
@@ -184,7 +217,9 @@ def main():
         "source_file": cfg.get("source_file", ""),
         "frame_path": os.path.join(out_dir, cfg["frame_path"]) if cfg.get("frame_path") else None,
         "input_type": cfg.get("input_type", "audio"),
-        "transcription_tool": "SenseVoice-Small q8（GGUF/llama.cpp 运行时 ~254MB，纯 CPU，零 Python 依赖）",
+        "transcription_tool": "SenseVoice-Small q8（GGUF/llama.cpp 运行时 ~254MB，"
+                              + ("CUDA GPU 加速" if backend == "cuda" else "纯 CPU")
+                              + "，零 Python 依赖）",
         "model": "local",
         "speaker_method": "无模型内分离（GGUF 运行时不打包 CAM++）→ 占位 SPEAKER_00，必须走 Step 3.5C LLM 语义重切",
         "date": datetime.now().strftime("%Y-%m-%d"),
